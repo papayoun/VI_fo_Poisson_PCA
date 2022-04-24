@@ -16,14 +16,23 @@ editor_options:
   chunk_output_type: console
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = FALSE)
+```{r setup, include=FALSE, cache = FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = FALSE,
+                      message = FALSE, warning = FALSE)
+```
+
+# R codes and librairies {-}
+
+All `R` codes can be unfolded, for instance, unfold the following chunk to see which libairies are used in this document:
+
+```{r librairies}
 rm(list=ls())
-library(tidyverse)
-library(rjags)
-library(ggmcmc)
+library(tidyverse) # For data manipulation and visualization
+library(rjags)  # For MCMC sampling
+library(ggmcmc) # To format jags output
 library(extraDistr) # For the non standart t distribution
 ```
+
 
 # A simple Poisson-log normal model
 
