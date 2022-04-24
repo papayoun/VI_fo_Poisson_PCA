@@ -1,0 +1,12 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+example_*.html
+example_*.pdf
+*_cache/
+*_files/
+*.log
+*.synctex.gz
+
