@@ -1,0 +1,124 @@
+---
+title: "About Variational Bayes for probabilistic PCA"
+author: "Eric PARENT & Pierre Gloaguen"
+date: 'the 21st of April 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay'
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    self_contained: yes
+    number_sections: yes
+    toc: yes
+    theme: journal
+    toc_float: yes
+    toc_depth: 2
+    highlight: tango
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE, cache = FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = FALSE,
+                      message = FALSE, warning = FALSE)
+```
+
+# R codes and librairies {-}
+
+All `R` codes can be unfolded, for instance, unfold the following chunk to see which libairies are used in this document:
+
+```{r librairies, cache = FALSE}
+rm(list=ls()) # Cleaning environment
+library(tidyverse) # For data manipulation and visualization
+library(rjags)  # For MCMC sampling
+library(ggmcmc) # To format jags output
+library(extraDistr) # For the non standart t distribution
+```
+
+
+# A simple latent factor model
+
+## Model
+
+We consider $n$ independant $p$-dimensional vectors $Y_i (1\leq i \leq n)$ such that, for every $i$:
+
+$$Y_i = \Lambda \eta_i + E_i,$$
+
+where $\eta_i$ is a $k$-dimensional independant standard Gaussian vector, $\eta_i \sim \mathcal{N}_k\left(0, I_k\right)$, Lambda is a $p\times k$ matrix of unknown real values, and $E_i$ is $p$-dimensional Gaussian vector with diagonal variance matrix, $E_i\sim \mathcal{N}_p(0, \Sigma)$, where $\Sigma = \text{diag}\left(\sigma^2_j\right)_{1\leq j \leq p}$.
+
+```{r source_generating_data, include = FALSE}
+source("utils_generating_data_PPCA.R")
+```
+
+```{r show_generating_data, file='utils_generating_data_PPCA.R'}
+```
+
+## Priors
+
+### Prior for $\Sigma$ {-}
+
+For each $1\leq j \leq p$, we consider 
+$$\sigma^{-2}_j \sim \mathcal{G}(a^{\sigma}, b^\sigma),$$ where $\nu$ is an unknwon prior parameter
+
+### Prior for $\Lambda$
+
+We first consider a sequence $(\delta_h)_{1\leq h \leq k}$ of random variables such that:
+\begin{align*}
+\delta_1 &\sim \mathcal{G}(a_1, 1)\\
+\delta_h &\sim \mathcal{G}(a_h, 1),~2\leq h \leq k.
+\end{align*}
+From this sequence, we define the sequence $(\tau_h)_{1\leq h \leq k}$ such that:
+$$\tau_h = \prod_{\ell = 1}^h \delta_\ell, 1\leq h \leq k.$$
+Moreover, consider, for $1\leq j \leq p$ and $1\leq h\leq k$ the random variables 
+$$\phi_{j,h} \sim \mathcal{G}(\frac{\nu}{2}, \frac{\nu}{2}),$$
+then, we define the prior over $\lambda_{j,h}$ as 
+$$\lambda_{j,h} \sim \mathcal{N}\left(0, (\phi_{j,h}\tau_h)^{-1}\right).$$
+
+# Variational inference
+
+## Variational family
+
+We propose to approximate the posterior distribution of all unknown variables by the following mean-field family:
+$$q(\Lambda, \eta, \Sigma, \phi, \delta) = \prod_{j,h = 1}^{p,k}q(\lambda_{j,h})q(\phi_{j,h})\prod_{i = 1}^{n}q(\eta_i)\prod_{j = 1}^pq(\sigma^{-2}_j)\prod_{h = 1}^{k}q(\delta_h).$$
+Moreover, we suppose that:
+\begin{align*}
+q(\lambda_{j,h}) &\text{ is the p.d.f. of a } \mathcal{N}(\mu_{j,h}^\lambda, s_{j,h}^\lambda)\\
+q(\eta_{i}) &\text{ is the p.d.f. of a } \mathcal{N}(\mu_{i}^\eta, \Sigma_{i}^\eta)\\
+q(\phi_{j,h}) &\text{ is the p.d.f. of a } \mathcal{G}(a_{j,h}^\phi, b_{j,h}^\phi)\\
+q(\delta_{h}) &\text{ is the p.d.f. of a } \mathcal{G}(a_{h}^\delta, b_{h}^\delta) \\
+q(\sigma^{-2}_{j}) &\text{ is the p.d.f. of a } \mathcal{G}(a_{j}^\sigma, b_{j}^\sigma) \\
+\end{align*}
+
+## Log joint distribution
+
+We use the following decomposition:
+
+\begin{align*}
+\log \left[Y, \Lambda, \eta, \Sigma^{-1}, \phi, \delta\right] =& \sum_{i = 1}^n \log \left[Y_i \vert \Lambda, \eta, \Sigma\right] \\
+&+ \log \left[\Lambda \vert \phi, \delta\right] \\
+&+ \sum_{i = 1}^n \log \left[\eta_i\right]\\
+&+ \sum_{j = 1}^p\log \left[\sigma^{-2}_j\right]\\
+&+ \sum_{j = 1}^p\sum_{h = 1}^k\log\left[\phi_{j,h}\right]\\
+&+ \sum_{h = 1}^k\log\left[\tau_{h}\right]
+\end{align*}
+
+## Updates
+
+Following the CAVI algorithm, each parameter $\theta$ distribution is updated sequentially by computing 
+$$\mathbb{E}_{-\theta}\left[\log \left[Y, \Lambda, \eta, \Sigma^{-1}, \phi, \delta\right]\right],$$
+where $\mathbb{E}_{-\theta}[\cdot]$ denotes the expectation with respect to all random variables except $\theta$.
+
+### Update $\eta_i$
+
+In the log joint distribution, the only terms involving $\eta_i$ are given by
+
+$$
+f(\eta_i; \Lambda, \Sigma) = -\frac{1}{2}\left(
+(Y_i - \Lambda\eta_i)^T\Sigma^{-1}(Y_i - \Lambda\eta_i) + \eta_i^T \eta_i
+\right)
+=
+-\frac{1}{2}\left(
+\eta_i^T(\overset{:=S}{\Lambda^T\Sigma^{-1}\Lambda} + I_k) \eta_i -2\eta_i^T\lambda^T\Sigma^{-1}Y_i + \text{Cst}
+\right).
+$$
+One can easily show that $1\leq j_1,j_2\leq p$
+$$S_{j_1,j_2} = \sum_{\ell=1}^{p}\sigma^{-2}_l \lambda_{\ell,j_1}\lambda_{\ell, j_2}$$
