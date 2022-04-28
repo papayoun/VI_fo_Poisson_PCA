@@ -1,0 +1,419 @@
+---
+title: "About Variational Bayes for PPCA data"
+author: "Eric PARENT & Pierre Gloaguen"
+date: "the 26th of April 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+  html_document:
+    code_folding: hide
+    df_print: paged
+    self_contained: yes
+    number_sections: yes
+    toc: yes
+    theme: journal
+    toc_float: yes
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE, cache = FALSE}
+
+# knitr::opts_chunk$set(
+# 	echo = TRUE,
+# 	message = FALSE,
+# 	warning = FALSE,
+# 	cache = FALSE
+# )
+knitr::opts_chunk$set(
+	eval = FALSE,
+	message = FALSE,
+	warning = FALSE,
+	cache = FALSE,
+	include = TRUE
+)
+```
+
+# R codes and librairies {-}
+
+All `R` codes can be unfolded, for instance, unfold the following chunk to see which libairies are used in this document:
+
+```{r librairies}
+rm(list=ls())
+library(tidyverse) # For data manipulation and visualization
+library(rjags)  # For MCMC sampling
+library(ggmcmc) # To format jags output
+library(extraDistr) # For the non standart t distribution
+```
+
+
+# A not-so-simple shrinkage PPCA model
+
+Bhattacharya and Dunson consider the following linear normal model with a gamma process to shrink the variances of the columns of the latent matrix $\lambda$:
+\begin{align*}
+Y_i &\sim_{ind.} \mathcal{N}_p(\Lambda\eta_i, \Sigma)\;,\; 1\leq i \leq n \\
+\Sigma &= diag(\sigma_j^{-2}),\; 1\leq j \leq p \\
+\sigma_j^{-2}|(a_{\sigma},b_{\sigma}) &\sim \Gamma(a_{\sigma},b_{\sigma})\\
+\lambda_{jh} &\sim \mathcal{N}_{q}(0,\,\phi_{jh}^{-1}\tau_{h}^{-1})
+\; 1 \leq h \leq {q} \\
+\phi_{jh} &\sim \Gamma(\frac{\nu}{2},\frac{\nu}{2})\\
+\tau_{h} &= \prod_{l=1}^h \delta_l \\ 
+\delta_1 &\sim \Gamma(a_1,1) \\
+\delta_l &\sim \Gamma(a_2,1) \ \forall l \geq 2
+\end{align*}
+
+Recall that -- up to constant terms-- the logdensity of such a Normal multivariate distribution is:
+$$\log[Y|\Lambda,\Sigma] = -\frac{n}{2}\left(log\vert C\vert +tr(C^{-1}\hat{S}_Y)\right)$$
+with
+
+$$ C= \Lambda\Lambda'+\Sigma\\
+\hat{S}_Y=\frac{1}{n}\sum_{i=1}^n Y'_iY_i$$
+
+In the case $q<<p$, because $\Sigma$ is diagonal, it is easier to compute the inverse of the variance-covariance matrix by $C^{-1}=\Sigma^{-1}-\Sigma^{-1}\Lambda(I+ \Lambda' \Sigma^{-1}\Lambda)^{-1}\Lambda'\Sigma^{-1}.$
+
+
+Some example data are generated in the following R code chunk.
+
+```{r generation}
+source("utils_PPCA_generating_data.R") # For true values
+Y <- read.table("data_PPCA.txt", sep = ";") %>%
+  as.matrix()
+```
+
+
+# Variationnal approach
+
+We denote $Z$ the unknown with components $(\tau,\phi,\eta,\Lambda,\sigma^{-2})$ and choose an independent family $\left(\prod_u q_{z_u}(Z_u) \right)$ to approximate $[Z|Y]$ such that :
+\begin{align*}
+\tau_h &\sim q_{\tau_h}(\cdot)= \mathcal{G}(A_h,B_h)\;,\; 1\leq h \leq q \\
+\phi_{jh} &\sim q_{\phi_{jh}}(\cdot)= \mathcal{G}(\alpha_{jh},\beta_{jh})\;,\; 1\leq j \leq p \;,\; 1\leq h \leq q\\
+\sigma^{-2}_{j} &\sim q_{\sigma^{-2}_{j}}(\cdot)= \mathcal{G}(\alpha_{\sigma_j},\beta_{\sigma_j})\;,\; 1\leq j \leq p \\
+\eta_i &\sim q_{\eta_i}(\cdot)= \mathcal{N}(M_{\eta_i},(\Omega_{\eta_i})^{-1})\;,\; 1\leq i \leq n \\
+\lambda_j &\sim q_{\lambda_j }(\cdot)= \mathcal{N}(M_{\lambda_j},(\Omega_{\lambda_j})^{-1})\;,\; 1\leq j \leq p 
+\end{align*}
+We rely on the minimisation of the Kullback Liebler divergence
+$KL= \mathbb{E}_q\left[\log\frac{q(Z}{[Z|Y]}\right]$.
+Equivalently we want to maximize the ELBO
+
+$$ELBO= \mathbb{E}_q\left[\log[Y,\tau,\phi,\eta,\Lambda,\sigma^{-2}]\right]-\mathbb{E}_q\left[\log q(\tau,\phi,\eta,\Lambda,\sigma^{-2})\right]$$
+
+Due to conditionnal independence the criterion can decomposed as 
+
+\begin{align*}
+ELBO=&\mathbb{E}_q\left[\log\left([Y|\eta,\Lambda,\sigma^{-2}]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\sigma^{-2}]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\phi]\right) \right]\\
+& + \mathbb{E}_q\left[\log\left([\Lambda|\tau,\phi]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\tau,\phi]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\phi]\right)\right]\\
+& -\mathbb{E}_q\left[\log q(\tau,\phi,\eta,\Lambda,\sigma^{-2})\right]
+\end{align*}
+
+Up to constant terms:
+$$\log[Y|\Lambda,\Sigma,\eta] = -\frac{n}{2}\left(log\vert \Sigma^{-1}\vert +tr(\Sigma^{-1}\hat{S}_{Y,\eta,\Lambda})\right)$$
+with
+
+$$ \hat{S}_{Y,\eta,\Lambda}=\frac{1}{n}\sum_{i=1}^n (Y_i-\Lambda\eta_i')(Y'_i-\eta_i\Lambda')\\
+= \frac{1}{n} (Y'-\eta\Lambda')(Y-\lambda\eta')$$
+
+
+and 
+$$\log[\eta] = -\frac{n}{2}\left(log\vert I_p\vert +tr(I_p\hat{S}_{\eta})\right)$$
+with
+
+$$ \hat{S}_{\eta}=\frac{1}{n}\sum_{i=1}^n \eta_i\eta_i'\\
+ = \frac{1}{n} \eta'\eta$$
+
+Since $\Sigma$ is diagonal:
+
+$$\log[\sigma^{-2}] = \sum_{j=1}^p\left((a_\sigma -1)log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)$$
+
+Due to normal assumptions for $\Lambda$
+
+$$\log\left([\Lambda_{jh}|\tau_{h},\phi_{jh}]\right)=0.5log(\phi_{jh})-0.5\Lambda_{jh}^2\phi_{jh}\prod_{k=1}^h \delta_k+0.5\sum_{k=1}^h log(\delta_k) $$
+with gamma shrinkage process for the precision
+
+$$\log[\phi_{jh}] = (\frac{1}{ 2} \gamma -1)log(\phi_{jh}) -\frac{1}{ 2}\phi_{jh}$$
+$$\log[\delta_{1}] = (a_1 -1)log(\delta_{1}) -b_{1} \delta_{1}\\
+\log[\delta_{2}] = (a_2 -1)log(\delta_{2}) -b_{2} \delta_{2}\\
+\cdots \\
+\log[\delta_{h}] = (a_2 -1)log(\delta_{h}) -b_{2} \delta_{h} \; , \; h\ge 2$$
+
+Wrapping up all the previous log density terms
+
+\begin{align*}
+ELBO=&\mathbb{E}_q\left[\log\left([Y|\eta,\Lambda,\sigma^{-2}]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\sigma^{-2}]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\phi]\right) \right]\\
+& + \mathbb{E}_q\left[\log\left([\Lambda|\tau,\phi]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\tau,\phi]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\phi]\right)\right]\\
+& -\mathbb{E}_q\left[\log q(\tau,\phi,\eta,\Lambda,\sigma^{-2})\right]
+\end{align*}
+
+
+\begin{align*}
+KL\left[\left\lbrace M_i, \Omega_i\right\rbrace_{i\leq i \leq n}, M_{\mu}, n_{post}, A, B\right] =&  \mathbb{E}_q\left[z_iy_i-\text{e}^{z_i}\right]\\
+& + \frac{n}{2}\mathbb{E}_q\left[\log(\tau)\right]- \frac{1}{2}\sum_{i = 1}^n \mathbb{E}_q\left[\tau(z_i-\mu)^2\right]\\
+& + \mathbb{E}_q\left[(a_0 - \frac{1}{2})\log\tau - b_0 \tau -\frac{n_0}{2}\tau\left(\mu - \mu_0\right)^2\right]\\
+& +\frac{1}{2} \sum_{i = 1}^n \log \Omega_i  + \frac{1}{2}\Omega_i^{-1}\mathbb{E}_q\left[(z_i - \mu_i)^2\right] \\
+& - \mathbb{E}_q\left[(A - \frac{1}{2})\log\tau - B \tau -\frac{n_{post}}{2}\tau\left(\mu - M_\mu\right)^2\right].
+\end{align*}
+
+Note that in that case, all expectations are available analytically.
+
+A convenient way to maximize this function is to proceed iteratively via a coordinate ascent algorithm. At iteration $k$, Considering $Z$ as fixed with distribution parameters,  $\left(\left\lbrace M_i^{(k)}, \Omega_i^{(k)}\right\rbrace_{i\leq i \leq n}\right)$ we have that the parameter $(M_{\mu}^{(k)}, n^{(k)}_{post}, A^{(k)}, B^{(k)})$ are the parameters of the distribution:
+$$\mathbb{E}_q(Z)\left[\log[\mu,\tau \vert Z, Y]\right].$$
+Here, we have that 
+$$\mathbb{E}_q(Z)\left[\log[\mu,\tau \vert Z, Y]\right] = \log[\mu,\tau] + \mathbb{E}_q(Z)\left[\log[Z \vert \mu,\tau]\right].$$
+Hence
+
+ * $A^{(k)}= a_0+\frac{n}{2}$
+ * $n^{(k)}_{\text{post}} = n_0 + n$
+ * $M_\mu^{(k)}=\frac{n_0\mu_0+\sum_i M_i}{n_0+n}$
+ * $B^{(k)} = b_0 + \frac{1}{2}\left(n_0\mu_0^2 + \sum_{i = 1}^n\left(\Omega_i + M_i^2\right) - n^{(k)}_{\text{post}}\left(M_\mu^{(k)}\right)^2 \right)$  
+ 
+ These update equations are easily implemented within functions.
+```{r update_functions, echo=TRUE}
+update_A <- function(n, a0){
+  .5 * n + a0
+}
+update_n_post <- function(n, n0){
+  n0 + n
+}
+update_M_mu <- function(n, n0, mu0, M_z){
+  (n0 * mu0 + sum(M_z)) / (n0 + n)
+}
+update_B <- function(n, n0, b0, mu0, M_z, M_mu,Omega_z, n_post){
+  
+  b0 + .5 * (n0 * mu0^2 + 
+               sum(Omega_z + M_z^2) - 
+               n_post * M_mu^2)
+}
+```
+
+
+For $q_{z_i}(Z_i)$, the divergence must be optimized numerically:
+$$ \mathbb{E}_{q(z_i)}\left[ (Z_iy_i-\text{e}^{Z_i})-0.5 \frac{A}{B}(Z_i^2+Z_i M_\mu)-\log q(Z_i)\right] $$
+
+Since $q(z_i)$ is a normal pdf:
+\begin{align*}
+\mathbb{E}_{q(z_i)}\left[\log q(z_i) \right]&= -0.5 \times \log \Omega_i\\
+\mathbb{E}_{q(z_i)}\left[\exp(q(z_i))\right] &= \text{e}^{M_i+0.5 \Omega_i}
+\end{align*}
+
+At the end of the day, for each $1\leq i \leq n$, we need optimize the following expression to get $M_i$ and $\Omega_i$:
+
+$$ M_iy_i-\text{e}^{M_i+0.5 \Omega_i}-0.5 \frac{A}{B}(M_i^2+\Omega_i+z_iM_\mu)+0.5 \times \log(\Omega_i)$$
+
+This target function is easily implemented and will be optimized using the `optim` function.
+
+```{r target_function}
+target_function <- function(z_pars, y, A, B, M_mu, n_post) {
+  m_z = z_pars[1]
+  omega_z = z_pars[2]
+  res = y * m_z - exp(m_z + omega_z / 2) - 
+    0.5 * A / B * (m_z ^ 2 + omega_z - 2 * m_z * M_mu) + 
+    0.5 * log(omega_z)
+  return(-res) # Return the negative results for optimization
+}
+```
+
+We therefore have all the ingredients to perform variational inference, which is done in the `perform_CAVI` function.
+
+```{r perform_CAVI_function}
+perform_CAVI <- function(max_iter, Y, n0, a0, b0, mu0){
+  # Intialisation
+  get_ELBO <- function(Y, A, B, M_z, M_mu, Omega_z, n_post){
+    n <- length(Y)
+    E_log_tau <- digamma(A) - log(B)
+    E_tau <- A / B
+    E_tau_mu2 <- (1 / n_post + E_tau * M_mu^2)
+    ll_term <- sum(Y * M_z - exp(M_z + .5 * Omega_z))
+    z_prior_term <- .5 * (n * E_log_tau - 
+                            E_tau * (sum(M_z^2 + Omega_z) - 2 * sum(M_z) * M_mu) -
+                            n * E_tau_mu2)
+    mu_tau_prior_term <- (a0 - .5) * E_log_tau - 
+      (b0 + .5 * n0 * mu0^2 - n0 * M_mu * mu0) * E_tau -
+      .5 * n0 * E_tau_mu2
+    q_z_term <- .5 * sum(log(Omega_z))
+    q_mu_tau_term <- -((A - .5) * E_log_tau -
+                         (B + .5 * n_post * M_mu^2 - n_post * M_mu^2) * E_tau -
+                         .5 * n_post * E_tau_mu2)
+    (ll_term + z_prior_term + mu_tau_prior_term + q_z_term + q_mu_tau_term) / n 
+  }
+  n <- length(Y)
+  M_z = log(Y + 1)
+  M_mu <- update_M_mu(n = n, n0 = n0, mu0 = mu0, M_z = M_z)
+  Omega_z = rep(var(log(Y + 1)), n)
+  A = update_A(n = n, a0 = a0)
+  n_post = update_n_post(n, n0)
+  B = A *  var(M_z)
+  ELBOS <- rep(NA, max_iter + 1)
+  ELBOS[1] <- get_ELBO(Y, A, B, M_z, M_mu, Omega_z, n_post)
+  #iteration début
+  for (iter in 1:max_iter) {
+    #maj M_z et Omega_z par Laplace
+    optim_results <- parallel::mcmapply(M_z, Omega_z, Y,
+                                        FUN = function(m, omega, y){
+      Opt <- optim(
+        par = c(m, omega),
+        fn = target_function,
+        y = y,
+        A = A,
+        B = B,
+        M_mu = M_mu,
+        method = "L-BFGS-B",
+        lower = c(-10, 1e-6),
+        control = list(maxit = 100)
+      )
+      c(mean = Opt$par[1], var = Opt$par[2])
+    }, mc.cores = parallel::detectCores())
+    M_z = optim_results["mean", ]
+    Omega_z = optim_results["var", ]
+    M_mu = update_M_mu(n = n, n0 = n0, mu0 = mu0, M_z = M_z)
+    B = update_B(n = n, n0 = n0, b0 = b0, 
+                 mu0 = mu0,  M_z = M_z, M_mu = M_mu, 
+                  Omega_z = Omega_z, n_post = n_post)
+    ELBOS[iter + 1] <- get_ELBO(Y, A, B, M_z, M_mu, Omega_z, n_post)
+  }
+  result <- list(ELBO = tibble(Iteration = 0:max_iter,
+                               ELBO = ELBOS),
+                 pars = list(Z = tibble(Parameter = factor(paste0("Z[", 1:n, "]"),
+                                                           levels = paste0("Z[", 1:n, "]")),
+                                        mean = M_z,
+                                        sd = sqrt(Omega_z)),
+                             mu = list(df = 2 * A, mu = M_mu, 
+                                    sigma = sqrt(B / (n_post * A))),
+                             tau = list(shape = A, rate = B)))
+  return(result)
+}
+```
+
+We now perform the inference on the previously simulated data set:
+
+```{r CAVI_results}
+CAVI_results <- perform_CAVI(20, Y, n0, a0, b0, mu0)
+CAVI_pars <- CAVI_results$pars
+```
+
+We can check the evolution of the ELBO across iterations:
+
+```{r graphe_ELBO}
+ggplot(CAVI_results$ELBO) +
+  aes(x = Iteration, y = ELBO) +
+  geom_point() +
+  labs(title = "Evolution de l'ELBO")
+```
+
+Before exploring results, we will perform the inference on the same model with MCMC (in `Jags`).
+
+# Comparaison with MCMC inference
+
+Relying on Jags, we can get MCMC samples from the posterior distribution of the unknows.
+
+```{r modelString}
+modelString = "
+model{
+  for(i in 1:n){
+    Y[i] ~ dpois(exp(Z[i]))
+    Z[i] ~ dnorm(mu,tau)
+  }  
+    taudenu<-n0*tau
+    mu ~ dnorm(mu0,taudenu)
+    tau ~ dgamma(a,b)
+}"
+```
+
+```{r jags_inference}
+data_for_JAGS <- list(
+  n = n,
+  Y = Y,
+  n0 = n0,
+  a = a0,
+  b = b0,
+  mu0 = mu0
+)
+n.adapt = 1000
+burnin = 1000
+n.iter = burnin * 2
+thin = 1
+jm <- jags.model(
+  file = textConnection(modelString),
+  data = data_for_JAGS,
+  n.chains = 3 ,
+  n.adapt = n.adapt
+)
+update(jm, burnin)
+jsamples <- coda.samples(
+  model = jm,
+  variable.names = c("Z", "mu", "tau"),
+  n.iter = n.iter,
+  thin = thin
+)
+```
+
+
+We transform the MCMC coda file into a regular tibble to visualize posterior pdfs and variational ones.
+
+```{r MCMCvisualization}
+MCMC_results <- ggs(jsamples)
+```
+
+We can now visualize the estimated posterior distributions for all parameters:
+
+```{r graphic_for_mu}
+MCMC_results %>%
+  filter((Parameter %in% c("mu"))) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_density(aes(color = "MCMC")) +
+  geom_vline(xintercept = c(mu)) +
+  stat_function(
+    mapping = aes(color = "VI"),
+    fun = extraDistr::dlst,
+    args = CAVI_pars$mu,
+  ) +
+  labs(x = "", y = "Posterior distribution", 
+       title = expression("Estimated posterior distribution of "~mu),
+       color = "Inference method")
+```
+
+```{r graphic_for_tau}
+MCMC_results %>%
+  filter(Parameter %in% c("tau")) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_density(aes(color = "MCMC")) +
+  geom_vline(xintercept = c(1/sigma^2)) +
+  stat_function(
+    mapping = aes(color = "VI"),
+    fun = dgamma,
+    args = CAVI_pars$tau,
+  ) +
+  labs(x = "", y = "Posterior distribution", 
+       title = expression("Estimated posterior distribution of "~tau),
+       color = "Inference method")
+```
+
+```{r graphic_for_Z}
+range_Z <- filter(MCMC_results, str_detect(Parameter, "Z")) %>% 
+  pull(value) %>% 
+  range()
+Z_posterior_CAVI <- CAVI_pars$Z %>% 
+  group_by(Parameter) %>% 
+  group_modify(function(x, g){
+    tibble(value = seq(range_Z[1], range_Z[2], length.out = 101),
+           posterior = dnorm(value, x$mean, x$sd))
+  }) %>% 
+  ungroup()
+filter(MCMC_results, str_detect(Parameter, "Z")) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_density(aes(color = "MCMC")) +
+  facet_wrap(~Parameter, labeller = label_parsed) +
+  geom_line(data = Z_posterior_CAVI, aes(y = posterior,
+                                         color = "VI")) +
+  labs(x = "", y = "Posterior distribution", 
+       title = expression("Estimated posterior distribution of latent variables"),
+       color = "Inference method")
+```
