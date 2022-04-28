@@ -1,11 +1,8 @@
 ---
 title: "About Variational Bayes for PPCA data"
 author: "Eric PARENT & Pierre Gloaguen"
-date: "the 26th of April 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
+date: "the 28th of April 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
 output:
-  pdf_document:
-    toc: yes
-    toc_depth: '2'
   html_document:
     code_folding: hide
     df_print: paged
@@ -15,6 +12,9 @@ output:
     theme: journal
     toc_float: yes
     toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
 editor_options:
   chunk_output_type: console
 ---
@@ -71,7 +71,7 @@ with
 $$ C= \Lambda\Lambda'+\Sigma\\
 \hat{S}_Y=\frac{1}{n}\sum_{i=1}^n Y'_iY_i$$
 
-In the case $q<<p$, because $\Sigma$ is diagonal, it is easier to compute the inverse of the variance-covariance matrix by $C^{-1}=\Sigma^{-1}-\Sigma^{-1}\Lambda(I+ \Lambda' \Sigma^{-1}\Lambda)^{-1}\Lambda'\Sigma^{-1}.$
+In the case $q<<p$, because $\Sigma$ is diagonal, it is easier to compute the inverse of the variance-covariance matrix by $$C^{-1}=\Sigma^{-1}-\Sigma^{-1}\Lambda(I+ \Lambda' \Sigma^{-1}\Lambda)^{-1}\Lambda'\Sigma^{-1}$$
 
 
 Some example data are generated in the following R code chunk.
@@ -85,13 +85,13 @@ Y <- read.table("data_PPCA.txt", sep = ";") %>%
 
 # Variationnal approach
 
-We denote $Z$ the unknown with components $(\tau,\phi,\eta,\Lambda,\sigma^{-2})$ and choose an independent family $\left(\prod_u q_{z_u}(Z_u) \right)$ to approximate $[Z|Y]$ such that :
+We denote $Z$ the unknown with components $(\tau,\phi,\eta,\Lambda,\Sigma)$ and choose an independent family $\left(\prod_u q_{z_u}(Z_u) \right)$ to approximate $[Z|Y]$ such that :
 \begin{align*}
-\tau_h &\sim q_{\tau_h}(\cdot)= \mathcal{G}(A_h,B_h)\;,\; 1\leq h \leq q \\
-\phi_{jh} &\sim q_{\phi_{jh}}(\cdot)= \mathcal{G}(\alpha_{jh},\beta_{jh})\;,\; 1\leq j \leq p \;,\; 1\leq h \leq q\\
-\sigma^{-2}_{j} &\sim q_{\sigma^{-2}_{j}}(\cdot)= \mathcal{G}(\alpha_{\sigma_j},\beta_{\sigma_j})\;,\; 1\leq j \leq p \\
-\eta_i &\sim q_{\eta_i}(\cdot)= \mathcal{N}(M_{\eta_i},(\Omega_{\eta_i})^{-1})\;,\; 1\leq i \leq n \\
-\lambda_j &\sim q_{\lambda_j }(\cdot)= \mathcal{N}(M_{\lambda_j},(\Omega_{\lambda_j})^{-1})\;,\; 1\leq j \leq p 
+\delta_h &\sim q_{\delta_h}(\cdot)= \mathcal{G}(A^{\delta}_h,B^{\delta}_h)\;,\; 1\leq h \leq q \\
+\phi_{jh} &\sim q_{\phi_{jh}}(\cdot)= \mathcal{G}(A^{\phi}_{jh},B^{\phi}_{jh})\;,\; 1\leq j \leq p \;,\; 1\leq h \leq q\\
+\sigma^{-2}_{j} &\sim q_{\sigma^{-2}_{j}}(\cdot)= \mathcal{G}(A^{\sigma}_j,B^{\sigma}_j)\;,\; 1\leq j \leq p \\
+\eta_i &\sim q_{\eta_i}(\cdot)= \mathcal{N}(M_{\eta_i},(V^{\eta_i}))\;,\; 1\leq i \leq n \\
+\lambda_j &\sim q_{\lambda_j }(\cdot)= \mathcal{N}(M_{\lambda_j},(V^{\lambda_j}))\;,\; 1\leq j \leq p 
 \end{align*}
 We rely on the minimisation of the Kullback Liebler divergence
 $KL= \mathbb{E}_q\left[\log\frac{q(Z}{[Z|Y]}\right]$.
@@ -102,13 +102,13 @@ $$ELBO= \mathbb{E}_q\left[\log[Y,\tau,\phi,\eta,\Lambda,\sigma^{-2}]\right]-\mat
 Due to conditionnal independence the criterion can decomposed as 
 
 \begin{align*}
-ELBO=&\mathbb{E}_q\left[\log\left([Y|\eta,\Lambda,\sigma^{-2}]\right)\right]\\
-& + \mathbb{E}_q\left[\log\left([\sigma^{-2}]\right)\right]\\
-& + \mathbb{E}_q\left[\log\left([\phi]\right) \right]\\
-& + \mathbb{E}_q\left[\log\left([\Lambda|\tau,\phi]\right)\right]\\
-& + \mathbb{E}_q\left[\log\left([\tau,\phi]\right)\right]\\
+ELBO=&\mathbb{E}_q\left[\log\left([Y|\eta,\Lambda,\Sigma]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\Sigma]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\eta]\right) \right]\\
+& + \mathbb{E}_q\left[\log\left([\Lambda|\delta,\phi]\right)\right]\\
 & + \mathbb{E}_q\left[\log\left([\phi]\right)\right]\\
-& -\mathbb{E}_q\left[\log q(\tau,\phi,\eta,\Lambda,\sigma^{-2})\right]
+& + \mathbb{E}_q\left[\log\left([\delta]\right)\right]\\
+& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]
 \end{align*}
 
 Up to constant terms:
@@ -125,10 +125,11 @@ with
 
 $$ \hat{S}_{\eta}=\frac{1}{n}\sum_{i=1}^n \eta_i\eta_i'\\
  = \frac{1}{n} \eta'\eta$$
+ 
 
 Since $\Sigma$ is diagonal:
 
-$$\log[\sigma^{-2}] = \sum_{j=1}^p\left((a_\sigma -1)log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)$$
+$$\log[\Sigma^{-1}] = \sum_{j=1}^p\left((a_\sigma -1)log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)$$
 
 Due to normal assumptions for $\Lambda$
 
@@ -143,170 +144,63 @@ $$\log[\delta_{1}] = (a_1 -1)log(\delta_{1}) -b_{1} \delta_{1}\\
 
 Wrapping up all the previous log density terms
 
+
 \begin{align*}
-ELBO=&\mathbb{E}_q\left[\log\left([Y|\eta,\Lambda,\sigma^{-2}]\right)\right]\\
-& + \mathbb{E}_q\left[\log\left([\sigma^{-2}]\right)\right]\\
-& + \mathbb{E}_q\left[\log\left([\phi]\right) \right]\\
-& + \mathbb{E}_q\left[\log\left([\Lambda|\tau,\phi]\right)\right]\\
-& + \mathbb{E}_q\left[\log\left([\tau,\phi]\right)\right]\\
-& + \mathbb{E}_q\left[\log\left([\phi]\right)\right]\\
-& -\mathbb{E}_q\left[\log q(\tau,\phi,\eta,\Lambda,\sigma^{-2})\right]
+ELBO=& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]\\
+& +\mathbb{E}_q\left[\frac{n}{2}\left(\sum_{j=1}^p \log\sigma_j^{-2} \right)-0.5\sum_{i=1}^n tr\left(\Sigma^{-1} (Y_i-\Lambda\eta_i')(Y'_i-\eta_i\Lambda')\right)\right]\\
+& + \mathbb{E}_q\left[\sum_{j=1}^p\left((a_\sigma -1)log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)\right]\\
+& + \mathbb{E}_q\left[\frac{1}{2}tr(\eta'\eta) \right]\\
+& + \sum_{j=1,h=1}^{p,q}\mathbb{E}_q\left[0.5log(\phi_{jh})-0.5\Lambda_{jh}^2\phi_{jh}\prod_{k=1}^h \delta_k+0.5\sum_{k=1}^h log(\delta_k) \right]\\
+& + \mathbb{E}_q\left[(\frac{1}{ 2} \gamma -1)log(\phi_{jh}) -\frac{\gamma}{ 2}\phi_{jh}\right]\\
+& + \mathbb{E}_q\left[(a_1 -1)log(\delta_{1}) - \delta_{1}\right]\\
+& + \mathbb{E}_q\left[(a_2 -1)log(\delta_{2}) - \delta_{2}\right]\\
+& + \cdots\\
+& + \mathbb{E}_q\left[(a_2 -1)log(\delta_{q}) - \delta_{q}\right]
 \end{align*}
 
 
-\begin{align*}
-KL\left[\left\lbrace M_i, \Omega_i\right\rbrace_{i\leq i \leq n}, M_{\mu}, n_{post}, A, B\right] =&  \mathbb{E}_q\left[z_iy_i-\text{e}^{z_i}\right]\\
-& + \frac{n}{2}\mathbb{E}_q\left[\log(\tau)\right]- \frac{1}{2}\sum_{i = 1}^n \mathbb{E}_q\left[\tau(z_i-\mu)^2\right]\\
-& + \mathbb{E}_q\left[(a_0 - \frac{1}{2})\log\tau - b_0 \tau -\frac{n_0}{2}\tau\left(\mu - \mu_0\right)^2\right]\\
-& +\frac{1}{2} \sum_{i = 1}^n \log \Omega_i  + \frac{1}{2}\Omega_i^{-1}\mathbb{E}_q\left[(z_i - \mu_i)^2\right] \\
-& - \mathbb{E}_q\left[(A - \frac{1}{2})\log\tau - B \tau -\frac{n_{post}}{2}\tau\left(\mu - M_\mu\right)^2\right].
-\end{align*}
+Note that in all cases, expectations are  analytically available.
 
-Note that in that case, all expectations are available analytically.
+A convenient way to maximize this function is to proceed iteratively via a coordinate ascent algorithm. 
 
-A convenient way to maximize this function is to proceed iteratively via a coordinate ascent algorithm. At iteration $k$, Considering $Z$ as fixed with distribution parameters,  $\left(\left\lbrace M_i^{(k)}, \Omega_i^{(k)}\right\rbrace_{i\leq i \leq n}\right)$ we have that the parameter $(M_{\mu}^{(k)}, n^{(k)}_{post}, A^{(k)}, B^{(k)})$ are the parameters of the distribution:
-$$\mathbb{E}_q(Z)\left[\log[\mu,\tau \vert Z, Y]\right].$$
-Here, we have that 
-$$\mathbb{E}_q(Z)\left[\log[\mu,\tau \vert Z, Y]\right] = \log[\mu,\tau] + \mathbb{E}_q(Z)\left[\log[Z \vert \mu,\tau]\right].$$
 Hence
 
- * $A^{(k)}= a_0+\frac{n}{2}$
- * $n^{(k)}_{\text{post}} = n_0 + n$
- * $M_\mu^{(k)}=\frac{n_0\mu_0+\sum_i M_i}{n_0+n}$
- * $B^{(k)} = b_0 + \frac{1}{2}\left(n_0\mu_0^2 + \sum_{i = 1}^n\left(\Omega_i + M_i^2\right) - n^{(k)}_{\text{post}}\left(M_\mu^{(k)}\right)^2 \right)$  
+ * $A^{\sigma}_j= a_\sigma+\frac{n}{2}$; 
+ * $B^{\sigma}_j= b_\sigma+\frac{1}{2}\sum_{i=1}^n \mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)$; 
  
- These update equations are easily implemented within functions.
-```{r update_functions, echo=TRUE}
-update_A <- function(n, a0){
-  .5 * n + a0
-}
-update_n_post <- function(n, n0){
-  n0 + n
-}
-update_M_mu <- function(n, n0, mu0, M_z){
-  (n0 * mu0 + sum(M_z)) / (n0 + n)
-}
-update_B <- function(n, n0, b0, mu0, M_z, M_mu,Omega_z, n_post){
-  
-  b0 + .5 * (n0 * mu0^2 + 
-               sum(Omega_z + M_z^2) - 
-               n_post * M_mu^2)
-}
-```
-
-
-For $q_{z_i}(Z_i)$, the divergence must be optimized numerically:
-$$ \mathbb{E}_{q(z_i)}\left[ (Z_iy_i-\text{e}^{Z_i})-0.5 \frac{A}{B}(Z_i^2+Z_i M_\mu)-\log q(Z_i)\right] $$
-
-Since $q(z_i)$ is a normal pdf:
-\begin{align*}
-\mathbb{E}_{q(z_i)}\left[\log q(z_i) \right]&= -0.5 \times \log \Omega_i\\
-\mathbb{E}_{q(z_i)}\left[\exp(q(z_i))\right] &= \text{e}^{M_i+0.5 \Omega_i}
-\end{align*}
-
-At the end of the day, for each $1\leq i \leq n$, we need optimize the following expression to get $M_i$ and $\Omega_i$:
-
-$$ M_iy_i-\text{e}^{M_i+0.5 \Omega_i}-0.5 \frac{A}{B}(M_i^2+\Omega_i+z_iM_\mu)+0.5 \times \log(\Omega_i)$$
-
-This target function is easily implemented and will be optimized using the `optim` function.
-
-```{r target_function}
-target_function <- function(z_pars, y, A, B, M_mu, n_post) {
-  m_z = z_pars[1]
-  omega_z = z_pars[2]
-  res = y * m_z - exp(m_z + omega_z / 2) - 
-    0.5 * A / B * (m_z ^ 2 + omega_z - 2 * m_z * M_mu) + 
-    0.5 * log(omega_z)
-  return(-res) # Return the negative results for optimization
-}
-```
-
-We therefore have all the ingredients to perform variational inference, which is done in the `perform_CAVI` function.
-
-```{r perform_CAVI_function}
-perform_CAVI <- function(max_iter, Y, n0, a0, b0, mu0){
-  # Intialisation
-  get_ELBO <- function(Y, A, B, M_z, M_mu, Omega_z, n_post){
-    n <- length(Y)
-    E_log_tau <- digamma(A) - log(B)
-    E_tau <- A / B
-    E_tau_mu2 <- (1 / n_post + E_tau * M_mu^2)
-    ll_term <- sum(Y * M_z - exp(M_z + .5 * Omega_z))
-    z_prior_term <- .5 * (n * E_log_tau - 
-                            E_tau * (sum(M_z^2 + Omega_z) - 2 * sum(M_z) * M_mu) -
-                            n * E_tau_mu2)
-    mu_tau_prior_term <- (a0 - .5) * E_log_tau - 
-      (b0 + .5 * n0 * mu0^2 - n0 * M_mu * mu0) * E_tau -
-      .5 * n0 * E_tau_mu2
-    q_z_term <- .5 * sum(log(Omega_z))
-    q_mu_tau_term <- -((A - .5) * E_log_tau -
-                         (B + .5 * n_post * M_mu^2 - n_post * M_mu^2) * E_tau -
-                         .5 * n_post * E_tau_mu2)
-    (ll_term + z_prior_term + mu_tau_prior_term + q_z_term + q_mu_tau_term) / n 
-  }
-  n <- length(Y)
-  M_z = log(Y + 1)
-  M_mu <- update_M_mu(n = n, n0 = n0, mu0 = mu0, M_z = M_z)
-  Omega_z = rep(var(log(Y + 1)), n)
-  A = update_A(n = n, a0 = a0)
-  n_post = update_n_post(n, n0)
-  B = A *  var(M_z)
-  ELBOS <- rep(NA, max_iter + 1)
-  ELBOS[1] <- get_ELBO(Y, A, B, M_z, M_mu, Omega_z, n_post)
-  #iteration début
-  for (iter in 1:max_iter) {
-    #maj M_z et Omega_z par Laplace
-    optim_results <- parallel::mcmapply(M_z, Omega_z, Y,
-                                        FUN = function(m, omega, y){
-      Opt <- optim(
-        par = c(m, omega),
-        fn = target_function,
-        y = y,
-        A = A,
-        B = B,
-        M_mu = M_mu,
-        method = "L-BFGS-B",
-        lower = c(-10, 1e-6),
-        control = list(maxit = 100)
-      )
-      c(mean = Opt$par[1], var = Opt$par[2])
-    }, mc.cores = parallel::detectCores())
-    M_z = optim_results["mean", ]
-    Omega_z = optim_results["var", ]
-    M_mu = update_M_mu(n = n, n0 = n0, mu0 = mu0, M_z = M_z)
-    B = update_B(n = n, n0 = n0, b0 = b0, 
-                 mu0 = mu0,  M_z = M_z, M_mu = M_mu, 
-                  Omega_z = Omega_z, n_post = n_post)
-    ELBOS[iter + 1] <- get_ELBO(Y, A, B, M_z, M_mu, Omega_z, n_post)
-  }
-  result <- list(ELBO = tibble(Iteration = 0:max_iter,
-                               ELBO = ELBOS),
-                 pars = list(Z = tibble(Parameter = factor(paste0("Z[", 1:n, "]"),
-                                                           levels = paste0("Z[", 1:n, "]")),
-                                        mean = M_z,
-                                        sd = sqrt(Omega_z)),
-                             mu = list(df = 2 * A, mu = M_mu, 
-                                    sigma = sqrt(B / (n_post * A))),
-                             tau = list(shape = A, rate = B)))
-  return(result)
-}
-```
-
-We now perform the inference on the previously simulated data set:
-
-```{r CAVI_results}
-CAVI_results <- perform_CAVI(20, Y, n0, a0, b0, mu0)
-CAVI_pars <- CAVI_results$pars
-```
-
+ * $A^{\phi}_{jh}= \frac{\gamma}{2}+\frac{1}{2}$; 
+ * $B^{\phi}_{jh}=\frac{\gamma}{2}+\frac{1}{2}\mathbb{E}_q (\Lambda_{jh} ^2 ) \prod_{k=1}^h \mathbb{E}_q (\delta_k)$; 
+ 
+ * $A^{\delta}_1= a_1+\frac{p}{q}$; 
+ * $B^{\delta}_{1}=1+\frac{1}{2}\sum_{l=1}^q \sum_{j=1}^p \mathbb{E}_q (\Lambda_{jl} ^2 )\mathbb{E}_q (\phi_{jl} ^2 ) \prod_{t=2}^l \mathbb{E}_q (\delta_t)$;  
+ 
+ for $l \ge 2$: 
+ 
+ * $A^{\delta}_h= a_2+\frac{p(q-h+1)}{2}$; 
+ * $B^{\delta}_{h}=1+\frac{1}{2}\sum_{l=h}^q \sum_{j=1}^p \mathbb{E}_q (\Lambda_{jl} ^2 )\mathbb{E}_q (\phi_{jl} ^2 ) \prod_{t=1, t\ne h}^l \mathbb{E}_q (\delta_t)$;  
+ 
+ The variational normal distribution for $\eta_i$ is obtained as follows:
+ 
+ * First, let's compute the precision first component, $\tilde{P}^{\eta_i}=\sum_{j=1}^p \frac{A^{\sigma_j}}{B^{\sigma_j}}V^{\lambda_j}$
+ * Then the precision, $(V^{\eta_i})^{-1}=\tilde{P}^{\eta_i}+I_{qq}$
+ 
+ * And subsequently the variational mean
+ $M^{\eta_i}=V^{\eta_i}\mathbb{E}_q (\Lambda')\mathbb{E}_q ( \Sigma^{-1})Y_i$
+ 
+ The variational normal distributions for $\lambda_j$ is obtained as follows:
+ 
+ * ${P}^{\lambda_j}=\mathbb{E}_q({\sigma_j^{-2}}\eta'\eta)+\mathbb{E}_q({D^{-1}}_\eta'\eta_j)$
+ 
+ * The precision first component, $\tilde{P}^{\lambda_j}=\left(\frac{A^{\sigma_j}}{B^{\sigma_j}}\right)\sum_{i=1}^n (V^{\eta_i}+{M^{\eta_i}}{M^{\eta_i}}')$ . Note that the matrix $\sum_{i=1}^n (V^{\eta_i}+{M^{\eta_i}}{M^{\eta_i}}')$ is to be computed once for all $1\le j \le p)$
+ 
+ * Then the precision, $(V^{\lambda_j})^{-1}=\tilde{P}^{\lambda_j}+diag(\frac{A^{\phi_{jh}}}{B^{\phi_{jh}}} \prod_{l=1}^h\frac{A^{\delta_{l}}}{B^{\delta_{l}}} )$
+ 
+ * And subsequently the variational mean
+ $M^{\lambda_j}=V^{\lambda_j}\left(\frac{A^{\sigma_j}}{B^{\sigma_j}}\right) {M^{\eta}}'Y_j$
+ 
+ These update equations are implemented within functions.
+ 
 We can check the evolution of the ELBO across iterations:
-
-```{r graphe_ELBO}
-ggplot(CAVI_results$ELBO) +
-  aes(x = Iteration, y = ELBO) +
-  geom_point() +
-  labs(title = "Evolution de l'ELBO")
-```
 
 Before exploring results, we will perform the inference on the same model with MCMC (in `Jags`).
 
