@@ -252,7 +252,7 @@ for(j in 1:p){ preciE[j] ~ dgamma(a_sigma,b_sigma)
 data_for_JAGS <- list(
   n = dim(Y)[1],
   p=dim(Y)[2],
-  q=5,
+  q=6,
   Y = Y
 )
 n.adapt = 1000
@@ -281,7 +281,7 @@ We transform the MCMC coda file into a regular tibble to visualize posterior pdf
 ```{r MCMCvisualization}
 MCMC_results <- ggs(jsamples)
 ggs_traceplot(MCMC_results)
-ggs_density(MCMC_results,family=c("a"))
+ggs_density(MCMC_results %>% filter(Parameter %in% c("a[1]","a[2]")))
 ggs_density(MCMC_results,family=c("tau"))
 ggs_caterpillar(MCMC_results,family = "tau")
 ```
