@@ -1,7 +1,7 @@
 ---
 title: "About Variational Bayes for PPCA data"
 author: "Eric PARENT & Pierre Gloaguen"
-date: "the 28th of April 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
+date: "the 29th of April 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
 output:
   html_document:
     code_folding: hide
@@ -211,24 +211,49 @@ Relying on Jags, we can get MCMC samples from the posterior distribution of the 
 ```{r modelString}
 modelString = "
 model{
-  for(i in 1:n){
-    Y[i] ~ dpois(exp(Z[i]))
-    Z[i] ~ dnorm(mu,tau)
-  }  
-    taudenu<-n0*tau
-    mu ~ dnorm(mu0,taudenu)
-    tau ~ dgamma(a,b)
+#a1 <- 2
+#a2 <- 3
+a[1] ~ dgamma(2,1)T(2,)
+a[2] ~ dgamma(2,1)T(3,)
+deminu <- 3/2
+a_sigma <- 0.1
+b_sigma <- 0.1
+
+#shrinkage prior
+for( h in 2:q){delta[h] ~ dgamma(a[2],1)}
+              delta[1] ~ dgamma(a[1],1)
+for( h in 1:q){ tau[h] <- prod(delta[1:h])} 
+for( j in 1:p){
+               for( h in 1:q){
+                              phi[j,h] ~ dgamma(deminu,deminu)
+                              precilambda[j,h] <- phi[j,h]*tau[h]
+                              lambda[j,h]~ dnorm(0,precilambda[j,h])
+                              }
+               }
+# N(0,1) prior for eta
+for(i in 1:n){
+              for (h in 1:q){
+                      eta[i,h] ~ dnorm(0,1)
+                            }
+}
+muY <- eta %*% t(lambda)
+# finally Y
+for(j in 1:p){ preciE[j] ~ dgamma(a_sigma,b_sigma)
+              for (i in 1:n){
+                      Y[i,j] ~ dnorm(muY[i,j],preciE[j])
+                            }
+}
+
 }"
 ```
 
+
 ```{r jags_inference}
 data_for_JAGS <- list(
-  n = n,
-  Y = Y,
-  n0 = n0,
-  a = a0,
-  b = b0,
-  mu0 = mu0
+  n = dim(Y)[1],
+  p=dim(Y)[2],
+  q=5,
+  Y = Y
 )
 n.adapt = 1000
 burnin = 1000
@@ -243,10 +268,11 @@ jm <- jags.model(
 update(jm, burnin)
 jsamples <- coda.samples(
   model = jm,
-  variable.names = c("Z", "mu", "tau"),
+  variable.names = c("tau","a"),
   n.iter = n.iter,
   thin = thin
 )
+
 ```
 
 
@@ -254,6 +280,10 @@ We transform the MCMC coda file into a regular tibble to visualize posterior pdf
 
 ```{r MCMCvisualization}
 MCMC_results <- ggs(jsamples)
+ggs_traceplot(MCMC_results)
+ggs_density(MCMC_results,family=c("a"))
+ggs_density(MCMC_results,family=c("tau"))
+ggs_caterpillar(MCMC_results,family = "tau")
 ```
 
 We can now visualize the estimated posterior distributions for all parameters:
