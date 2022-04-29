@@ -1,8 +1,11 @@
 ---
 title: "About Variational Bayes for probabilistic PCA"
 author: "Eric PARENT & Pierre Gloaguen"
-date: 'the 21st of April 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay'
+date: "the 21st of April 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
 output:
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
   html_document:
     code_folding: hide
     df_print: paged
@@ -13,12 +16,12 @@ output:
     toc_float: yes
     toc_depth: 2
     highlight: tango
-editor_options: 
+editor_options:
   chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE, cache = FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = FALSE,
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE,
                       message = FALSE, warning = FALSE)
 ```
 
@@ -117,8 +120,65 @@ f(\eta_i; \Lambda, \Sigma) = -\frac{1}{2}\left(
 \right)
 =
 -\frac{1}{2}\left(
-\eta_i^T(\overset{:=S}{\Lambda^T\Sigma^{-1}\Lambda} + I_k) \eta_i -2\eta_i^T\lambda^T\Sigma^{-1}Y_i + \text{Cst}
+\eta_i^T(\overset{:=S}{\Lambda^T\Sigma^{-1}\Lambda} + I_k) \eta_i -2\eta_i^T\Lambda^T\Sigma^{-1}Y_i + \text{Cst}
 \right).
 $$
 One can easily show that $1\leq j_1,j_2\leq p$
-$$S_{j_1,j_2} = \sum_{\ell=1}^{p}\sigma^{-2}_l \lambda_{\ell,j_1}\lambda_{\ell, j_2}$$
+$$S_{j_1,j_2} = \sum_{\ell=1}^{p}\sigma^{-2}_l \lambda_{\ell,j_1}\lambda_{\ell, j_2}.$$
+Therefore, taking expectations of both terms with respect to $\Lambda$ and $\Sigma$ (and using independance assumption), we have that
+
+$$
+\mathbb{E}_{\Lambda, \Sigma}\left[f(\eta_i; \Lambda, \Sigma)\right] =
+-\frac{1}{2}\left(
+\eta_i^T\left(\mathbb{E}\left[S\right] + I_k\right) \eta_i -2\eta_i^T\mathbb{E}\left[\Lambda\right]^T\mathbb{E}\left[\Sigma^{-1}\right]Y_i + \text{Cst}
+\right),
+$$
+where:
+\begin{align}
+\mathbb{E}[S]_{j_1,j_2} &= 
+\left\lbrace 
+\begin{array}{lr}
+\sum_{\ell=1}^{p}\frac{a_\ell^\sigma}{b_\ell^{\sigma}} \mu^\lambda_{\ell,j_1}\mu^\lambda_{\ell, j_2} & \text{ si } j_1\neq j_2\\
+\sum_{\ell=1}^{p}\frac{a_\ell^\sigma}{b_\ell^{\sigma}} \left(\left(\mu^\lambda_{\ell,j_1}\right)^2 + s^\lambda_{\ell,j_1}\right) & \text{ si } j_1 = j_2
+\end{array}
+\right.\\
+\mathbb{E}\left[\Lambda\right]_{j,h} &= \mu^\lambda_{j, h}\\
+\mathbb{E}\left[\Sigma^{-1}\right] &= \text{diag}\left(\frac{a_j^\sigma}{b_j^{\sigma}}\right)_{1\leq j \leq p}
+\end{align}
+
+### Update $\Lambda_{j,-}$
+
+One can easily rewrite the model in a column wise formulation, denoting $Y^j$ the $j$-th column of $Y$, $\Lambda_{j,-}$ the $j$-th row of $\Lambda$ (seen as a $k\times 1$ vector), and $\eta$ the $n \times k$ matrix stacking rowwise all $(\eta_i)_{1\leq i \leq n}$, we have:
+$$Y^j = \eta \Lambda_{j, -} + E_j,$$
+with $E_j \sim \mathcal{N}_k(0, \sigma^2_jI_k)$.
+Therefore, terms involving $\Lambda$ in the log joint distribution can be rewritten as:
+\begin{align*}
+&f(\Lambda;\eta;\Sigma; \phi; \delta) &= \sum_{j = 1}^p \log \left[Y_j \vert \Lambda_{j,-}, \eta, \Sigma\right] + \sum_{j = 1}^p \log \left[\Lambda_{j,-} \vert \phi, \delta\right]\\
+\Rightarrow & f(\Lambda_{j, -} &= -\frac{1}{2}
+\left(
+\sigma^{-2}_j\left(Y_j - \eta\Lambda_{j,-}\right)^T\left(Y_j - \eta\Lambda_{j,-}\right) + 
+\Lambda_{j,-}^T D_j^{-1} \Lambda_{j, -}
+\right),
+\end{align*}
+where $D_j^{-1} = \text{diag}\left(\phi_{j,h}\tau_j\right)_{1\leq h \leq k}$.
+Thus, as previously, one can easily identify the moment of the underlying multivariate Gaussian
+
+### Update $\sigma^{-2}_{j}$
+
+The difficulty here is to obtain $\mathbb{E}[\Lambda_{j,-}^T\eta^T\eta\Lambda_{j, -}]$.
+We write that 
+$$\Lambda_{j,-}^T\eta^T\eta\Lambda_{j, -} = \sum_{i=1}^n (\Lambda_{j,-}^T\eta_i)^2 = \sum_{i = 1}^n\sum_{h_1, h_2 = 1}^k\lambda_{j,h_1}\lambda_{j,h_2}\eta_{i,h_1}\eta_{i,h_2},$$
+whose expectation termwise can be obtained.
+
+$$
+B^{\sigma_j} = \text{tr}\left[
+\sum_{i = n}\left(\mu^{\eta_i}(\mu^{\eta_i})^T + S^{\eta_i}\right)
+\left(\mu^{\Lambda_{j, -}}(\mu^{\Lambda_{j, -}})^T + S^{\eta_i}\right)
+\right]
+$$
+
+### Update $\phi$
+
+$$
+A^{\phi_{j,h}} = \frac{\nu + 1}{2}; B^{\phi_{j,h}} = \frac{\nu}{2} + \frac{1}{2}\prod_{\ell = 1}^h \frac{A^{\delta_\ell}}{B^{\delta_{\ell}}}
+$$
