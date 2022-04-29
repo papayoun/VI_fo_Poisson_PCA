@@ -1,0 +1,343 @@
+---
+title: "About Variational Bayes for PPCA data"
+author: "Eric PARENT & Pierre Gloaguen"
+date: "the 29th of April 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    self_contained: yes
+    number_sections: yes
+    toc: yes
+    theme: journal
+    toc_float: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE, cache = FALSE}
+
+# knitr::opts_chunk$set(
+# 	echo = TRUE,
+# 	message = FALSE,
+# 	warning = FALSE,
+# 	cache = FALSE
+# )
+knitr::opts_chunk$set(
+	eval = FALSE,
+	message = FALSE,
+	warning = FALSE,
+	cache = FALSE,
+	include = TRUE
+)
+```
+
+# R codes and librairies {-}
+
+All `R` codes can be unfolded, for instance, unfold the following chunk to see which libairies are used in this document:
+
+```{r librairies}
+rm(list=ls())
+library(tidyverse) # For data manipulation and visualization
+library(rjags)  # For MCMC sampling
+library(ggmcmc) # To format jags output
+library(extraDistr) # For the non standart t distribution
+```
+
+
+# A not-so-simple shrinkage PPCA model
+
+Bhattacharya and Dunson consider the following linear normal model with a gamma process to shrink the variances of the columns of the latent matrix $\lambda$:
+\begin{align*}
+Y_i &\sim_{ind.} \mathcal{N}_p(\Lambda\eta_i, \Sigma)\;,\; 1\leq i \leq n \\
+\Sigma &= diag(\sigma_j^{-2}),\; 1\leq j \leq p \\
+\sigma_j^{-2}|(a_{\sigma},b_{\sigma}) &\sim \Gamma(a_{\sigma},b_{\sigma})\\
+\lambda_{jh} &\sim \mathcal{N}_{q}(0,\,\phi_{jh}^{-1}\tau_{h}^{-1})
+\; 1 \leq h \leq {q} \\
+\phi_{jh} &\sim \Gamma(\frac{\nu}{2},\frac{\nu}{2})\\
+\tau_{h} &= \prod_{l=1}^h \delta_l \\ 
+\delta_1 &\sim \Gamma(a_1,1) \\
+\delta_l &\sim \Gamma(a_2,1) \ \forall l \geq 2
+\end{align*}
+
+Recall that -- up to constant terms-- the logdensity of such a Normal multivariate distribution is:
+$$\log[Y|\Lambda,\Sigma] = -\frac{n}{2}\left(log\vert C\vert +tr(C^{-1}\hat{S}_Y)\right)$$
+with
+
+$$ C= \Lambda\Lambda'+\Sigma\\
+\hat{S}_Y=\frac{1}{n}\sum_{i=1}^n Y'_iY_i$$
+
+In the case $q<<p$, because $\Sigma$ is diagonal, it is easier to compute the inverse of the variance-covariance matrix by $$C^{-1}=\Sigma^{-1}-\Sigma^{-1}\Lambda(I+ \Lambda' \Sigma^{-1}\Lambda)^{-1}\Lambda'\Sigma^{-1}$$
+
+
+Some example data are generated in the following R code chunk.
+
+```{r generation}
+source("utils_PPCA_generating_data.R") # For true values
+Y <- read.table("data_PPCA.txt", sep = ";") %>%
+  as.matrix()
+```
+
+
+# Variationnal approach
+
+We denote $Z$ the unknown with components $(\tau,\phi,\eta,\Lambda,\Sigma)$ and choose an independent family $\left(\prod_u q_{z_u}(Z_u) \right)$ to approximate $[Z|Y]$ such that :
+\begin{align*}
+\delta_h &\sim q_{\delta_h}(\cdot)= \mathcal{G}(A^{\delta}_h,B^{\delta}_h)\;,\; 1\leq h \leq q \\
+\phi_{jh} &\sim q_{\phi_{jh}}(\cdot)= \mathcal{G}(A^{\phi}_{jh},B^{\phi}_{jh})\;,\; 1\leq j \leq p \;,\; 1\leq h \leq q\\
+\sigma^{-2}_{j} &\sim q_{\sigma^{-2}_{j}}(\cdot)= \mathcal{G}(A^{\sigma}_j,B^{\sigma}_j)\;,\; 1\leq j \leq p \\
+\eta_i &\sim q_{\eta_i}(\cdot)= \mathcal{N}(M_{\eta_i},(V^{\eta_i}))\;,\; 1\leq i \leq n \\
+\lambda_j &\sim q_{\lambda_j }(\cdot)= \mathcal{N}(M_{\lambda_j},(V^{\lambda_j}))\;,\; 1\leq j \leq p 
+\end{align*}
+We rely on the minimisation of the Kullback Liebler divergence
+$KL= \mathbb{E}_q\left[\log\frac{q(Z}{[Z|Y]}\right]$.
+Equivalently we want to maximize the ELBO
+
+$$ELBO= \mathbb{E}_q\left[\log[Y,\tau,\phi,\eta,\Lambda,\sigma^{-2}]\right]-\mathbb{E}_q\left[\log q(\tau,\phi,\eta,\Lambda,\sigma^{-2})\right]$$
+
+Due to conditionnal independence the criterion can decomposed as 
+
+\begin{align*}
+ELBO=&\mathbb{E}_q\left[\log\left([Y|\eta,\Lambda,\Sigma]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\Sigma]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\eta]\right) \right]\\
+& + \mathbb{E}_q\left[\log\left([\Lambda|\delta,\phi]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\phi]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\delta]\right)\right]\\
+& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]
+\end{align*}
+
+Up to constant terms:
+$$\log[Y|\Lambda,\Sigma,\eta] = -\frac{n}{2}\left(log\vert \Sigma^{-1}\vert +tr(\Sigma^{-1}\hat{S}_{Y,\eta,\Lambda})\right)$$
+with
+
+$$ \hat{S}_{Y,\eta,\Lambda}=\frac{1}{n}\sum_{i=1}^n (Y_i-\Lambda\eta_i')(Y'_i-\eta_i\Lambda')\\
+= \frac{1}{n} (Y'-\eta\Lambda')(Y-\lambda\eta')$$
+
+
+and 
+$$\log[\eta] = -\frac{n}{2}\left(log\vert I_p\vert +tr(I_p\hat{S}_{\eta})\right)$$
+with
+
+$$ \hat{S}_{\eta}=\frac{1}{n}\sum_{i=1}^n \eta_i\eta_i'\\
+ = \frac{1}{n} \eta'\eta$$
+ 
+
+Since $\Sigma$ is diagonal:
+
+$$\log[\Sigma^{-1}] = \sum_{j=1}^p\left((a_\sigma -1)log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)$$
+
+Due to normal assumptions for $\Lambda$
+
+$$\log\left([\Lambda_{jh}|\tau_{h},\phi_{jh}]\right)=0.5log(\phi_{jh})-0.5\Lambda_{jh}^2\phi_{jh}\prod_{k=1}^h \delta_k+0.5\sum_{k=1}^h log(\delta_k) $$
+with gamma shrinkage process for the precision
+
+$$\log[\phi_{jh}] = (\frac{1}{ 2} \gamma -1)log(\phi_{jh}) -\frac{1}{ 2}\phi_{jh}$$
+$$\log[\delta_{1}] = (a_1 -1)log(\delta_{1}) -b_{1} \delta_{1}\\
+\log[\delta_{2}] = (a_2 -1)log(\delta_{2}) -b_{2} \delta_{2}\\
+\cdots \\
+\log[\delta_{h}] = (a_2 -1)log(\delta_{h}) -b_{2} \delta_{h} \; , \; h\ge 2$$
+
+Wrapping up all the previous log density terms
+
+
+\begin{align*}
+ELBO=& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]\\
+& +\mathbb{E}_q\left[\frac{n}{2}\left(\sum_{j=1}^p \log\sigma_j^{-2} \right)-0.5\sum_{i=1}^n tr\left(\Sigma^{-1} (Y_i-\Lambda\eta_i')(Y'_i-\eta_i\Lambda')\right)\right]\\
+& + \mathbb{E}_q\left[\sum_{j=1}^p\left((a_\sigma -1)log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)\right]\\
+& + \mathbb{E}_q\left[\frac{1}{2}tr(\eta'\eta) \right]\\
+& + \sum_{j=1,h=1}^{p,q}\mathbb{E}_q\left[0.5log(\phi_{jh})-0.5\Lambda_{jh}^2\phi_{jh}\prod_{k=1}^h \delta_k+0.5\sum_{k=1}^h log(\delta_k) \right]\\
+& + \mathbb{E}_q\left[(\frac{1}{ 2} \gamma -1)log(\phi_{jh}) -\frac{\gamma}{ 2}\phi_{jh}\right]\\
+& + \mathbb{E}_q\left[(a_1 -1)log(\delta_{1}) - \delta_{1}\right]\\
+& + \mathbb{E}_q\left[(a_2 -1)log(\delta_{2}) - \delta_{2}\right]\\
+& + \cdots\\
+& + \mathbb{E}_q\left[(a_2 -1)log(\delta_{q}) - \delta_{q}\right]
+\end{align*}
+
+
+Note that in all cases, expectations are  analytically available.
+
+A convenient way to maximize this function is to proceed iteratively via a coordinate ascent algorithm. 
+
+Hence
+
+ * $A^{\sigma}_j= a_\sigma+\frac{n}{2}$; 
+ * $B^{\sigma}_j= b_\sigma+\frac{1}{2}\sum_{i=1}^n \mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)$; 
+ 
+ * $A^{\phi}_{jh}= \frac{\gamma}{2}+\frac{1}{2}$; 
+ * $B^{\phi}_{jh}=\frac{\gamma}{2}+\frac{1}{2}\mathbb{E}_q (\Lambda_{jh} ^2 ) \prod_{k=1}^h \mathbb{E}_q (\delta_k)$; 
+ 
+ * $A^{\delta}_1= a_1+\frac{p}{q}$; 
+ * $B^{\delta}_{1}=1+\frac{1}{2}\sum_{l=1}^q \sum_{j=1}^p \mathbb{E}_q (\Lambda_{jl} ^2 )\mathbb{E}_q (\phi_{jl} ^2 ) \prod_{t=2}^l \mathbb{E}_q (\delta_t)$;  
+ 
+ for $l \ge 2$: 
+ 
+ * $A^{\delta}_h= a_2+\frac{p(q-h+1)}{2}$; 
+ * $B^{\delta}_{h}=1+\frac{1}{2}\sum_{l=h}^q \sum_{j=1}^p \mathbb{E}_q (\Lambda_{jl} ^2 )\mathbb{E}_q (\phi_{jl} ^2 ) \prod_{t=1, t\ne h}^l \mathbb{E}_q (\delta_t)$;  
+ 
+ The variational normal distribution for $\eta_i$ is obtained as follows:
+ 
+ * First, let's compute the precision first component, $\tilde{P}^{\eta_i}=\sum_{j=1}^p \frac{A^{\sigma_j}}{B^{\sigma_j}}V^{\lambda_j}$
+ * Then the precision, $(V^{\eta_i})^{-1}=\tilde{P}^{\eta_i}+I_{qq}$
+ 
+ * And subsequently the variational mean
+ $M^{\eta_i}=V^{\eta_i}\mathbb{E}_q (\Lambda')\mathbb{E}_q ( \Sigma^{-1})Y_i$
+ 
+ The variational normal distributions for $\lambda_j$ is obtained as follows:
+ 
+ * ${P}^{\lambda_j}=\mathbb{E}_q({\sigma_j^{-2}}\eta'\eta)+\mathbb{E}_q({D^{-1}}_\eta'\eta_j)$
+ 
+ * The precision first component, $\tilde{P}^{\lambda_j}=\left(\frac{A^{\sigma_j}}{B^{\sigma_j}}\right)\sum_{i=1}^n (V^{\eta_i}+{M^{\eta_i}}{M^{\eta_i}}')$ . Note that the matrix $\sum_{i=1}^n (V^{\eta_i}+{M^{\eta_i}}{M^{\eta_i}}')$ is to be computed once for all $1\le j \le p)$
+ 
+ * Then the precision, $(V^{\lambda_j})^{-1}=\tilde{P}^{\lambda_j}+diag(\frac{A^{\phi_{jh}}}{B^{\phi_{jh}}} \prod_{l=1}^h\frac{A^{\delta_{l}}}{B^{\delta_{l}}} )$
+ 
+ * And subsequently the variational mean
+ $M^{\lambda_j}=V^{\lambda_j}\left(\frac{A^{\sigma_j}}{B^{\sigma_j}}\right) {M^{\eta}}'Y_j$
+ 
+ These update equations are implemented within functions.
+ 
+We can check the evolution of the ELBO across iterations:
+
+Before exploring results, we will perform the inference on the same model with MCMC (in `Jags`).
+
+# Comparaison with MCMC inference
+
+Relying on Jags, we can get MCMC samples from the posterior distribution of the unknows.
+
+```{r modelString}
+modelString = "
+model{
+#a1 <- 2
+#a2 <- 3
+a[1] ~ dgamma(2,1)T(2,)
+a[2] ~ dgamma(2,1)T(3,)
+deminu <- 3/2
+a_sigma <- 0.1
+b_sigma <- 0.1
+
+#shrinkage prior
+for( h in 2:q){delta[h] ~ dgamma(a[2],1)}
+              delta[1] ~ dgamma(a[1],1)
+for( h in 1:q){ tau[h] <- prod(delta[1:h])} 
+for( j in 1:p){
+               for( h in 1:q){
+                              phi[j,h] ~ dgamma(deminu,deminu)
+                              precilambda[j,h] <- phi[j,h]*tau[h]
+                              lambda[j,h]~ dnorm(0,precilambda[j,h])
+                              }
+               }
+# N(0,1) prior for eta
+for(i in 1:n){
+              for (h in 1:q){
+                      eta[i,h] ~ dnorm(0,1)
+                            }
+}
+muY <- eta %*% t(lambda)
+# finally Y
+for(j in 1:p){ preciE[j] ~ dgamma(a_sigma,b_sigma)
+              for (i in 1:n){
+                      Y[i,j] ~ dnorm(muY[i,j],preciE[j])
+                            }
+}
+
+}"
+```
+
+
+```{r jags_inference}
+data_for_JAGS <- list(
+  n = dim(Y)[1],
+  p=dim(Y)[2],
+  q=6,
+  Y = Y
+)
+n.adapt = 1000
+burnin = 1000
+n.iter = burnin * 2
+thin = 1
+jm <- jags.model(
+  file = textConnection(modelString),
+  data = data_for_JAGS,
+  n.chains = 3 ,
+  n.adapt = n.adapt
+)
+update(jm, burnin)
+jsamples <- coda.samples(
+  model = jm,
+  variable.names = c("tau","a"),
+  n.iter = n.iter,
+  thin = thin
+)
+
+```
+
+
+We transform the MCMC coda file into a regular tibble to visualize posterior pdfs and variational ones.
+
+```{r MCMCvisualization}
+MCMC_results <- ggs(jsamples)
+ggs_traceplot(MCMC_results)
+ggs_density(MCMC_results %>% filter(Parameter %in% c("a[1]","a[2]")))
+ggs_density(MCMC_results,family=c("tau"))
+ggs_caterpillar(MCMC_results,family = "tau")
+```
+
+We can now visualize the estimated posterior distributions for all parameters:
+
+```{r graphic_for_mu}
+MCMC_results %>%
+  filter((Parameter %in% c("mu"))) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_density(aes(color = "MCMC")) +
+  geom_vline(xintercept = c(mu)) +
+  stat_function(
+    mapping = aes(color = "VI"),
+    fun = extraDistr::dlst,
+    args = CAVI_pars$mu,
+  ) +
+  labs(x = "", y = "Posterior distribution", 
+       title = expression("Estimated posterior distribution of "~mu),
+       color = "Inference method")
+```
+
+```{r graphic_for_tau}
+MCMC_results %>%
+  filter(Parameter %in% c("tau")) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_density(aes(color = "MCMC")) +
+  geom_vline(xintercept = c(1/sigma^2)) +
+  stat_function(
+    mapping = aes(color = "VI"),
+    fun = dgamma,
+    args = CAVI_pars$tau,
+  ) +
+  labs(x = "", y = "Posterior distribution", 
+       title = expression("Estimated posterior distribution of "~tau),
+       color = "Inference method")
+```
+
+```{r graphic_for_Z}
+range_Z <- filter(MCMC_results, str_detect(Parameter, "Z")) %>% 
+  pull(value) %>% 
+  range()
+Z_posterior_CAVI <- CAVI_pars$Z %>% 
+  group_by(Parameter) %>% 
+  group_modify(function(x, g){
+    tibble(value = seq(range_Z[1], range_Z[2], length.out = 101),
+           posterior = dnorm(value, x$mean, x$sd))
+  }) %>% 
+  ungroup()
+filter(MCMC_results, str_detect(Parameter, "Z")) %>%
+  ggplot(mapping = aes(x = value)) +
+  geom_density(aes(color = "MCMC")) +
+  facet_wrap(~Parameter, labeller = label_parsed) +
+  geom_line(data = Z_posterior_CAVI, aes(y = posterior,
+                                         color = "VI")) +
+  labs(x = "", y = "Posterior distribution", 
+       title = expression("Estimated posterior distribution of latent variables"),
+       color = "Inference method")
+```
