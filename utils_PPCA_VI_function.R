@@ -1,20 +1,83 @@
-get_update_VI_Lambda <- function(Y, Phi_mat, tau_vec, Eta_mat, sigma2_vec){
-  sapply(1:length(sigma2_vec), function(j){
-    Dj_inv <- diag(Phi_mat[j,] * tau_vec)
-    cov_matrix <- solve(Dj_inv +
-                          t(Eta_mat) %*% Eta_mat / sigma2_vec[j])
-    mu <- cov_matrix %*% t(Eta_mat) %*% Y[, j] /  sigma2_vec[j]
-    rmvnorm(n = 1, mu = as.numeric(mu), sigma = cov_matrix) %>%
-      as.numeric()
-  }) %>%
-    t()
+rm(list = ls())
+n <- 100
+p <- 5
+q <- 3
+set.seed(123)
+Y <- matrix(rnorm(n * p), n, p)
+
+priors <- list(Sigma = list(A = 1, B = 3))
+  
+params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
+                             Cov = array(diag(1, q), dim = c(q, q, p))),
+               Eta = list(M = matrix(rnorm(q * n), q, n),
+                          Cov = array(diag(1, q), dim = c(q, q, n))),
+               Sigma = list(A = runif(p, 1, 3),
+                            B = runif(p, 1, 3)),
+               Delta = list(A = runif(q, 2, 5) ,
+                            B = rep(1, q)),
+               Phi = list(A = matrix(3/2, p, q),
+                          B = matrix(3/2, p, q)))
+
+get_update_VI_Lambda <- function(Y, params){
+  n <- nrow(Y)
+  Eta <- params$Eta
+  Sigma <- params$Sigma
+  Phi <- params$Phi
+  Delta <- params$Delta
+  mean_eta_prime_eta <- map(1:n, function(i){
+    Eta$Cov[,, i] + Eta$M[, i] %*% t(Eta$M[, i])
+  }) %>% 
+    Reduce(f = "+")
+  # Calcul des precisions
+  Cov <- map(1:p, function(j){
+    partial_precision <- Sigma$A[j] / Sigma$B[j] * mean_eta_prime_eta
+    precision <- partial_precision + 
+      Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B)
+    variance <- solve(precision)
+    return(variance)
+  }) %>% 
+    abind(along = 3) # Mise au format array
+  M <- sapply(1:p, function(j){
+    Sigma$A[j] / Sigma$B[j]  * Cov[,, j] %*% Eta$M %*% Y[, j]
+  })
+  list(M = M, Cov = Cov)
 }
 
-get_update_Sigma <- function(Y, Eta_mat, Lambda_mat, a_sigma, b_sigma){
-  p <- nrow(Lambda_mat)
-  1 / rgamma(p,
-             a_sigma + .5 * nrow(Y),
-             b_sigma + .5 * colSums((Y - Eta_mat %*% t(Lambda_mat))^2))
+params$Lambda <- get_update_VI_Lambda(Y, params)
+
+get_update_VI_Eta <- function(Y, params){
+  n <- nrow(Y)
+  Lambda <- params$Lambda
+  Sigma <- params$Sigma
+  Phi <- params$Phi
+  Delta <- params$Delta
+ 
+  # Calcul des precisions (la même pour tous les j!) 
+  precision <- map(1:p, function(j){
+    Sigma$A[j] / Sigma$B[j] * Lambda$Cov[,,j]
+  }) %>% 
+    Reduce(f = "+") %>% 
+    {. + diag(q)}
+ 
+  common_cov <- solve(precision)
+ 
+  M <- sapply(1:n, function(i){
+    common_cov %*% Lambda$M %*% diag(Sigma$A/Sigma$B) %*% Y[i, ] 
+  })
+  
+  Cov <- array(common_cov, dim = c(q, q, n))
+  
+  list(M = M, Cov = Cov)
+}
+
+params$Eta <- get_update_VI_Eta(Y, params)
+
+get_update_VI_Sigma <- function(Y, params){
+  Lambda <- params$Lambda
+  Eta <- params$Eta
+  Phi <- params$Phi
+  Delta <- params$Delta
+  
 }
 
 get_update_Eta <- function(Y, Lambda_mat, sigma2_vec){
@@ -61,7 +124,7 @@ get_update_deltas <- function(delta_vec, Lambda_mat, Phi_mat, a_1, a_2){
   output
 }
 
-get_gibbs_sample <- function(data_, n_steps, 
+get_CAVI <- function(data_, n_steps, 
                              k_tilde, 
                              raw_output = TRUE,
                              burn = 0,

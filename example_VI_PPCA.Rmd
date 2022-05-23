@@ -3,6 +3,9 @@ title: "About Variational Bayes for PPCA data"
 author: "Eric PARENT & Pierre Gloaguen"
 date: "the 29th of April 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
 output:
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
   html_document:
     code_folding: hide
     df_print: paged
@@ -12,9 +15,6 @@ output:
     theme: journal
     toc_float: yes
     toc_depth: 2
-  pdf_document:
-    toc: yes
-    toc_depth: '2'
 editor_options:
   chunk_output_type: console
 ---
@@ -248,11 +248,11 @@ for(j in 1:p){ preciE[j] ~ dgamma(a_sigma,b_sigma)
 ```
 
 
-```{r jags_inference}
+```{r jags_inference, eval = FALSE}
 data_for_JAGS <- list(
   n = dim(Y)[1],
-  p=dim(Y)[2],
-  q=6,
+  p = dim(Y)[2],
+  q = 6,
   Y = Y
 )
 n.adapt = 1000
@@ -272,7 +272,6 @@ jsamples <- coda.samples(
   n.iter = n.iter,
   thin = thin
 )
-
 ```
 
 
@@ -281,63 +280,13 @@ We transform the MCMC coda file into a regular tibble to visualize posterior pdf
 ```{r MCMCvisualization}
 MCMC_results <- ggs(jsamples)
 ggs_traceplot(MCMC_results)
-ggs_density(MCMC_results %>% filter(Parameter %in% c("a[1]","a[2]")))
+ggs_density(MCMC_results %>%
+              filter(Parameter %in% c("a[1]","a[2]")))
 ggs_density(MCMC_results,family=c("tau"))
-ggs_caterpillar(MCMC_results,family = "tau")
+ggs_caterpillar(MCMC_results,family = "tau") +
+  scale_x_continuous(trans = "log10")
 ```
 
 We can now visualize the estimated posterior distributions for all parameters:
 
-```{r graphic_for_mu}
-MCMC_results %>%
-  filter((Parameter %in% c("mu"))) %>%
-  ggplot(mapping = aes(x = value)) +
-  geom_density(aes(color = "MCMC")) +
-  geom_vline(xintercept = c(mu)) +
-  stat_function(
-    mapping = aes(color = "VI"),
-    fun = extraDistr::dlst,
-    args = CAVI_pars$mu,
-  ) +
-  labs(x = "", y = "Posterior distribution", 
-       title = expression("Estimated posterior distribution of "~mu),
-       color = "Inference method")
-```
 
-```{r graphic_for_tau}
-MCMC_results %>%
-  filter(Parameter %in% c("tau")) %>%
-  ggplot(mapping = aes(x = value)) +
-  geom_density(aes(color = "MCMC")) +
-  geom_vline(xintercept = c(1/sigma^2)) +
-  stat_function(
-    mapping = aes(color = "VI"),
-    fun = dgamma,
-    args = CAVI_pars$tau,
-  ) +
-  labs(x = "", y = "Posterior distribution", 
-       title = expression("Estimated posterior distribution of "~tau),
-       color = "Inference method")
-```
-
-```{r graphic_for_Z}
-range_Z <- filter(MCMC_results, str_detect(Parameter, "Z")) %>% 
-  pull(value) %>% 
-  range()
-Z_posterior_CAVI <- CAVI_pars$Z %>% 
-  group_by(Parameter) %>% 
-  group_modify(function(x, g){
-    tibble(value = seq(range_Z[1], range_Z[2], length.out = 101),
-           posterior = dnorm(value, x$mean, x$sd))
-  }) %>% 
-  ungroup()
-filter(MCMC_results, str_detect(Parameter, "Z")) %>%
-  ggplot(mapping = aes(x = value)) +
-  geom_density(aes(color = "MCMC")) +
-  facet_wrap(~Parameter, labeller = label_parsed) +
-  geom_line(data = Z_posterior_CAVI, aes(y = posterior,
-                                         color = "VI")) +
-  labs(x = "", y = "Posterior distribution", 
-       title = expression("Estimated posterior distribution of latent variables"),
-       color = "Inference method")
-```
