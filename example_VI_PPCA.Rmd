@@ -1,7 +1,7 @@
 ---
 title: "About Variational Bayes for PPCA data"
 author: "Eric PARENT & Pierre Gloaguen"
-date: "the 29th of April 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
+date: "the 24th of Mai 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
 output:
   pdf_document:
     toc: yes
@@ -166,7 +166,7 @@ A convenient way to maximize this function is to proceed iteratively via a coord
 Hence
 
  * $A^{\sigma}_j= a_\sigma+\frac{n}{2}$; 
- * $B^{\sigma}_j= b_\sigma+\frac{1}{2}\sum_{i=1}^n \mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)$; 
+ * $B^{\sigma}_j= b_\sigma+\frac{1}{2}\sum_{i=1}^n \mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)$; when developping the expression we get: $\mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)= \mathbb{E}_q (Y_{ij}^2)-2\mathbb{E}_q (Y_{ij})\mathbb{E}_q (\Lambda'_j\eta_i)+\sum_{h,h'}^{q,q} \mathbb{E}_q (\Lambda'_{jh}\Lambda'_{jh'}) \mathbb{E}_q (\eta_{i,h}\eta_{i,h'})$. The last term is the sum of the elements of the matrix resulting from a term-by-term multiplication of covariance matrices. Hence,  $\sum_{h,h'}^{q,q} \mathbb{E}_q (\Lambda'_{jh}\Lambda'_{jh'}) \mathbb{E}_q (\eta_{i,h}\eta_{i,h'})= \sum_{h,h'}^{q,q} \left(\mathbb{E}_q (\Lambda_{j})\mathbb{E}_q (\Lambda'_{j})+ \mathbb{V}_q (\Lambda_{j})\right) .\times. \left(\mathbb{E}_q (\eta_{i})\mathbb{E}_q (\eta'_{i})+ \mathbb{V}_q (\eta_{i})\right)$
  
  * $A^{\phi}_{jh}= \frac{\gamma}{2}+\frac{1}{2}$; 
  * $B^{\phi}_{jh}=\frac{\gamma}{2}+\frac{1}{2}\mathbb{E}_q (\Lambda_{jh} ^2 ) \prod_{k=1}^h \mathbb{E}_q (\delta_k)$; 
@@ -178,6 +178,7 @@ Hence
  
  * $A^{\delta}_h= a_2+\frac{p(q-h+1)}{2}$; 
  * $B^{\delta}_{h}=1+\frac{1}{2}\sum_{l=h}^q \sum_{j=1}^p \mathbb{E}_q (\Lambda_{jl} ^2 )\mathbb{E}_q (\phi_{jl} ^2 ) \prod_{t=1, t\ne h}^l \mathbb{E}_q (\delta_t)$;  
+
  
  The variational normal distribution for $\eta_i$ is obtained as follows:
  

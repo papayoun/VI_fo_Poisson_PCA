@@ -5,7 +5,7 @@ q <- 3
 set.seed(123)
 Y <- matrix(rnorm(n * p), n, p)
 
-priors <- list(Sigma = list(A = 1, B = 3))
+priors <- list(Sigma = list(A = 1, B = 3), Phi= list(A=3/2,B=3/2))
   
 params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
                              Cov = array(diag(1, q), dim = c(q, q, p))),
@@ -72,13 +72,34 @@ get_update_VI_Eta <- function(Y, params){
 
 params$Eta <- get_update_VI_Eta(Y, params)
 
+##############################################
 get_update_VI_Sigma <- function(Y, params){
   Lambda <- params$Lambda
   Eta <- params$Eta
   Phi <- params$Phi
   Delta <- params$Delta
+ Bji=matrix(NA,p,n) 
+  A <- rep(priors$Sigma$A+n/2,p)
+  EtaMprimLambdaM<-(t(Eta$M)%*%Lambda$M) # matrice(n,p)
   
+ # Bji<- map2_dbl(1:p,1:n, 
+# J'arrive pas!!!HELP! Du coup boucle, honte.
+  
+  GetB4Sig=function(j,i){
+    priors$Sigma$B+0.5*(Y[i,j]^2-2 *Y[i,j]*EtaMprimLambdaM[i,j])+ 
+      0.5*sum( (Lambda$Cov[,,j]+Lambda$M[,j]%*% t(Lambda$M[,j])) *
+                 ( Eta$Cov[,,i]+Eta$M[,i]%*% t(Eta$M[,i])))
+  }
+  
+  for (j in 1:p){
+    for (i in 1:n) {Bji[j,i]= GetB4Sig(j,i) }
+  }
+
+  B <- apply(Bji,1,sum) 
+  list(A=A,B=B)
 }
+
+params$Sigma <- get_update_VI_Sigma(Y, params)
 
 get_update_Eta <- function(Y, Lambda_mat, sigma2_vec){
   k_tilde <- ncol(Lambda_mat)
