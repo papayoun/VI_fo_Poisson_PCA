@@ -101,6 +101,26 @@ get_update_VI_Sigma <- function(Y, params){
 
 params$Sigma <- get_update_VI_Sigma(Y, params)
 
+######################
+get_update_VI_Phi <- function(Y, params){
+  Lambda <- params$Lambda
+  Eta <- params$Eta
+  Delta <- params$Delta
+  
+  # le meme pour tous
+  A <- matrix(priors$Phi$A+0.5,p,q)
+  
+  B=matrix(NA,p,q) 
+  cumprodAoverB  = cumprod(Delta$A/Delta$B)
+  for (j in 1:p){
+    for (h in 1:q) {B[j,h]= priors$Phi$B+0.5*(Lambda$M[h,j]^2+Lambda$Cov[h,h,j])*
+      cumprodAoverB[h] }
+  }
+  
+  list(A=A,B=B)
+}
+params$Phi <- get_update_VI_Phi(Y, params) 
+
 get_update_Eta <- function(Y, Lambda_mat, sigma2_vec){
   k_tilde <- ncol(Lambda_mat)
   cov_matrix_Etas <- solve(diag(1, k_tilde) +
