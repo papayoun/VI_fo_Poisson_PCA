@@ -171,13 +171,13 @@ Hence
  * $A^{\phi}_{jh}= \frac{\gamma}{2}+\frac{1}{2}$; 
  * $B^{\phi}_{jh}=\frac{\gamma}{2}+\frac{1}{2}\mathbb{E}_q (\Lambda_{jh} ^2 ) \prod_{k=1}^h \mathbb{E}_q (\delta_k)$; 
  
- * $A^{\delta}_1= a_1+\frac{p}{q}$; 
- * $B^{\delta}_{1}=1+\frac{1}{2}\sum_{l=1}^q \sum_{j=1}^p \mathbb{E}_q (\Lambda_{jl} ^2 )\mathbb{E}_q (\phi_{jl} ^2 ) \prod_{t=2}^l \mathbb{E}_q (\delta_t)$;  
+ * $A^{\delta}_1= a_1+\frac{p}{2}$; 
+ * $B^{\delta}_{1}=1+\frac{1}{2}\sum_{l=1}^q \sum_{j=1}^p \mathbb{E}_q (\Lambda_{jl} ^2 )\mathbb{E}_q (\phi_{jl} ) \prod_{t=2}^l \mathbb{E}_q (\delta_t)$;  
  
  for $l \ge 2$: 
  
  * $A^{\delta}_h= a_2+\frac{p(q-h+1)}{2}$; 
- * $B^{\delta}_{h}=1+\frac{1}{2}\sum_{l=h}^q \sum_{j=1}^p \mathbb{E}_q (\Lambda_{jl} ^2 )\mathbb{E}_q (\phi_{jl} ^2 ) \prod_{t=1, t\ne h}^l \mathbb{E}_q (\delta_t)$;  
+ * $B^{\delta}_{h}=1+\frac{1}{2}\sum_{l=h}^q \sum_{j=1}^p \mathbb{E}_q (\Lambda_{jl} ^2 )\mathbb{E}_q (\phi_{jl} ) \prod_{t=1, t\ne h}^l \mathbb{E}_q (\delta_t)$;  
 
  
  The variational normal distribution for $\eta_i$ is obtained as follows:
