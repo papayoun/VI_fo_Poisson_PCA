@@ -1,11 +1,14 @@
 rm(list = ls())
+library(abind)
 n <- 100
 p <- 5
 q <- 3
 set.seed(123)
 Y <- matrix(rnorm(n * p), n, p)
 
-priors <- list(Sigma = list(A = 1, B = 3), Phi= list(A=3/2,B=3/2))
+priors <- list(Sigma = list(A = 1, B = 3), 
+               Phi= list(A=3/2,B=3/2),
+               Delta= list(a1=2,a2=3))
   
 params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
                              Cov = array(diag(1, q), dim = c(q, q, p))),
@@ -120,6 +123,39 @@ get_update_VI_Phi <- function(Y, params){
   list(A=A,B=B)
 }
 params$Phi <- get_update_VI_Phi(Y, params) 
+
+######################
+get_update_VI_Delta <- function(Y, params){
+  Lambda <- params$Lambda
+  Eta <- params$Eta
+  Phi <- params$Phi
+  Delta <- params$Delta
+  
+  # Adevrait être initialisé une fois pour toutes
+  A <- priors$Delta$a2+0.5*p*(1+q-(1:q))
+  A[1] <- priors$Delta$a1+0.5*p*q 
+  
+  B=Delta$B
+  # Puis attention ce serait sans doute mieux une mise a jour séquentielle pour les B[h]
+ # il faudra que A et B soient initialisés
+  # quantités intermediares
+  #Lambda2Phi[l] supprime la dépendance en j
+  Lambda2Phi <- map_dbl(1:q, function(h){
+    sum(Lambda$M[h,]^2+Lambda$Cov[h,h,])
+  }) %>% as.vector()
+  CoeffEnligne= Lambda2Phi*cumprod(A/B)
+  CumSumCoeff<- cumsum(CoeffEnligne)
+  CoeffEncolonne <- map_dbl(2:q,function(k){(CumSumCoeff[q]-CumSumCoeff[k-1])/(A[k]/B[k])})
+  CoeffEncolonne <-c((CumSumCoeff[q]-0)/(A[1]/B[1]) , CoeffEncolonne)
+  
+  B <-1+0.5*CoeffEncolonne
+  
+  list(A,B)
+}
+
+params$Delta <- get_update_VI_Delta(Y, params) 
+
+######################
 
 get_update_Eta <- function(Y, Lambda_mat, sigma2_vec){
   k_tilde <- ncol(Lambda_mat)
