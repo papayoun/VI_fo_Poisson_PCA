@@ -228,6 +228,16 @@ ELBO=& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]\\
 & + (a_2 -1)\left( \psi(A_q^{\delta})-log(B_q^{\delta}) \right) -\frac{A_q^{\delta}} {B_q^{\delta}}
 \end{align*}
  
+ The entropic term $-\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]$ is straightfully computed. Up to constant terms,
+ 
+\begin{align*}
+& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]= \\
+& +\frac{1}{2}\sum_{j=1}^p log(\vert V^{\lambda_j} \vert)\\
+& +\frac{1}{2}\sum_{i=1}^n log(\vert V^{\eta_i} \vert)\\
+& +\sum_{j,h}^{p,q}\left(A_{j,h}^\phi-log(B_{j,h}^\phi)+log\Gamma(A_{j,h}^\phi)+(1-A_{j,h}^\phi) \psi(A_{j,h}^\phi) \right)\\
+& +\sum_{j}^{p}\left(A_j^\sigma-log(B_j^\sigma)+log\Gamma(A_j^\sigma)+(1-A_j^\sigma) \psi(A_j^\sigma) \right)\\
+&  +\sum_{h}^{q}\left(A_{h}^\delta-log(B_{h}^\delta)+log\Gamma(A_{h}^\delta)+(1-A_{h}^\delta) \psi(A_{h}^\delta) \right)
+\end{align*}
 
 Before exploring results, we will perform the inference on the same model with MCMC (in `Jags`).
 
