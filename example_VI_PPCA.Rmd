@@ -1,7 +1,7 @@
 ---
 title: "About Variational Bayes for PPCA data"
 author: "Eric PARENT & Pierre Gloaguen"
-date: "the 24th of Mai 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
+date: "the 30th of Mai 2022 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
 output:
   pdf_document:
     toc: yes
@@ -205,17 +205,23 @@ We can check the evolution of the ELBO across iterations. To compute the ELBO, o
 
  * the entropy of a Normal ($\mu,\Sigma$) distribution is $\frac{log(\vert \Sigma \vert)}{2}+ \frac{dim(\Sigma)}{2} (1+log(2\pi))$;
  
- * the entropy of a Gamma ($\alpha,\beta$) distribution is $\alpha-log(\beta)+log\Gamma(\alpha)+(1-\alpha) \psi(\alpha)$ with $\psi(.)$ being the so-call digamma function.
+ * the entropy of a Gamma ($\alpha,\beta$) distribution is $\alpha-log(\beta)+log\Gamma(\alpha)+(1-\alpha) \psi(\alpha)$ with $\psi(.)$ being the so-call digamma function;
+ 
+ * from the previous computations, we see that $\mathbb{E}_q($
+ $2(B^{\sigma}_j- b_\sigma)= \mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)$;
+ 
+ * and that $\mathbb{E}_q($
+ $2(B^{\phi}_{jh}- 0.5 \gamma)= \mathbb{E}_q (\Lambda^2 \prod_{k=1}^q \delta_k)$.
 
 Hence: 
 \begin{align*}
 ELBO=& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]\\
-& +\frac{n}{2}\sum_{j=1}^p\left( \psi(A_j^{\sigma_j})-log(B_j^{\sigma_j}) \right)\\
-& +\mathbb{E}_q\left[-0.5\sum_{i=1}^n tr\left(\Sigma^{-1} (Y_i-\Lambda\eta_i')(Y'_i-\eta_i\Lambda')\right)\right]\\
-& + \mathbb{E}_q\left[\sum_{j=1}^p\left((a_\sigma -1)log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)\right]\\
-& + \mathbb{E}_q\left[\frac{1}{2}tr(\eta'\eta) \right]\\
-& + \sum_{j=1,h=1}^{p,q}\mathbb{E}_q\left[-0.5\Lambda_{jh}^2\frac{A_{jh}^{\phi}} {B_{jh}^{\phi}}\prod_{k=1}^h \frac{A_k^{\delta}} {B_k^{\delta}}+0.5\sum_{k=1}^h \left( \psi(A_k^{\delta})-log(B_k^{\delta}) \right) \right]\\
-& + (\frac{1}{ 2} \gamma -\frac{1}{ 2})\left( \psi(A_{jh}^{\phi})-log(B_{jh}^{\phi}) \right) -\frac{\gamma}{ 2}\frac{A_{jh}^{\phi}} {B_{jh}^{\phi}}\\
+& +\frac{n}{2}\sum_{j=1}^p\left( \psi(A_j^{\sigma})-log(B_j^{\sigma}) \right)\\
+& -\left[ \sum_{j=1}^p \frac{A^{\sigma}_j}{B^{\sigma}_j} (B^{\sigma}_j- b_\sigma)\right]\\
+& + \sum_{j=1}^p\left((a_\sigma -1)\left( \psi(A_j^{\sigma})-log(B_j^{\sigma}) \right) -b_\sigma\frac{A_j^{\sigma}} {B_j^{\sigma}}\right)\\
+& + \left[\frac{1}{2}tr(\sum_i^p M^{\eta_i}M'^{\eta_i}+V^{\eta_i}) \right]\\
+& + \sum_{j=1,h=1}^{p,q}\left[-(B^{\phi}_{jh}- 0.5 \gamma)\frac{A_{jh}^{\phi}} {B_{jh}^{\phi}}+0.5\sum_{k=1}^h \left( \psi(A_k^{\delta})-log(B_k^{\delta}) \right) \right]\\
+& + \sum_{j=1,h=1}^{p,q}\left[(\frac{1}{ 2} \gamma -\frac{1}{ 2})\left( \psi(A_{jh}^{\phi})-log(B_{jh}^{\phi}) \right) -\frac{\gamma}{ 2}\frac{A_{jh}^{\phi}} {B_{jh}^{\phi}}\right]\\
 & +  (a_1 -1)\left( \psi(A_1^{\delta})-log(B_1^{\delta}) \right) -\frac{A_1^{\delta}} {B_1^{\delta}}\\
 & +  (a_2 -1)\left( \psi(A_2^{\delta})-log(B_2^{\delta}) \right) -\frac{A_2^{\delta}} {B_2^{\delta_q}}\\
 & + \cdots\\
