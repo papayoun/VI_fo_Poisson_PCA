@@ -1,28 +1,8 @@
-rm(list = ls())
-library(abind)
-n <- 100
-p <- 5
-q <- 3
-set.seed(123)
-Y <- matrix(rnorm(n * p), n, p)
 
-priors <- list(Sigma = list(A = 1, B = 3), 
-               Phi= list(A=3/2,B=3/2),
-               Delta= list(a1=2,a2=3))
-  
-params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
-                             Cov = array(diag(1, q), dim = c(q, q, p))),
-               Eta = list(M = matrix(rnorm(q * n), q, n),
-                          Cov = array(diag(1, q), dim = c(q, q, n))),
-               Sigma = list(A = runif(p, 1, 3),
-                            B = runif(p, 1, 3)),
-               Delta = list(A = runif(q, 2, 5) ,
-                            B = rep(1, q)),
-               Phi = list(A = matrix(3/2, p, q),
-                          B = matrix(3/2, p, q)))
 
 get_update_VI_Lambda <- function(Y, params){
   n <- nrow(Y)
+  p <- ncol(Y)
   Eta <- params$Eta
   Sigma <- params$Sigma
   Phi <- params$Phi
@@ -46,24 +26,24 @@ get_update_VI_Lambda <- function(Y, params){
   list(M = M, Cov = Cov)
 }
 
-params$Lambda <- get_update_VI_Lambda(Y, params)
 
 get_update_VI_Eta <- function(Y, params){
   n <- nrow(Y)
+  p <- ncol(Y)
   Lambda <- params$Lambda
   Sigma <- params$Sigma
   Phi <- params$Phi
   Delta <- params$Delta
- 
+  
   # Calcul des precisions (la même pour tous les j!) 
   precision <- map(1:p, function(j){
     Sigma$A[j] / Sigma$B[j] * Lambda$Cov[,,j]
   }) %>% 
     Reduce(f = "+") %>% 
     {. + diag(q)}
- 
+  
   common_cov <- solve(precision)
- 
+  
   M <- sapply(1:n, function(i){
     common_cov %*% Lambda$M %*% diag(Sigma$A/Sigma$B) %*% Y[i, ] 
   })
@@ -73,269 +53,282 @@ get_update_VI_Eta <- function(Y, params){
   list(M = M, Cov = Cov)
 }
 
-params$Eta <- get_update_VI_Eta(Y, params)
-
-##############################################
-get_update_VI_Sigma <- function(Y, params){
+get_update_VI_Sigma <- function(Y, params, priors){
+  n <- nrow(Y)
+  p <- ncol(Y)
   Lambda <- params$Lambda
   Eta <- params$Eta
   Phi <- params$Phi
   Delta <- params$Delta
- Bji=matrix(NA,p,n) 
-  A <- rep(priors$Sigma$A+n/2,p)
-  EtaMprimLambdaM<-(t(Eta$M)%*%Lambda$M) # matrice(n,p)
-  
- # Bji<- map2_dbl(1:p,1:n, 
-# J'arrive pas!!!HELP! Du coup boucle, honte.
-  
-  GetB4Sig=function(j,i){
-    priors$Sigma$B+0.5*(Y[i,j]^2-2 *Y[i,j]*EtaMprimLambdaM[i,j])+ 
-      0.5*sum( (Lambda$Cov[,,j]+Lambda$M[,j]%*% t(Lambda$M[,j])) *
-                 ( Eta$Cov[,,i]+Eta$M[,i]%*% t(Eta$M[,i])))
+  A <- rep(priors$Sigma$A + n / 2, p)
+  esp_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) +
+    Reduce("+", map(1:n, function(i){
+      Eta$M[, i] %*% t(Eta$M[, i])
+    }))
+  get_Bj <- function(j){
+    term1 <- sum(0.5 * sum(Y[, j] * Y[, j]))
+    term2 <- -sum(Y[, j] * t(Eta$M) %*% Lambda$M[,j])
+    term3 <- esp_eta_prime_eta %*%
+      (Lambda$Cov[,, j] + Lambda$M[, j]%*% t(Lambda$M[, j])) %>%
+      diag() %>% # Get the trace
+      sum() %>%
+      {0.5 * .}
+    term1 + term2 + term3
   }
-  
-  for (j in 1:p){
-    for (i in 1:n) {Bji[j,i]= GetB4Sig(j,i) }
-  }
-
-  B <- apply(Bji,1,sum) 
-  list(A=A,B=B)
+  B <- priors$Sigma$B + map_dbl(1:p, get_Bj)
+  # EtaMprimLambdaM<-(t(Eta$M)%*%Lambda$M) # matrice(n,p)
+  # GetB4Sig = function(j,i){
+  #   0.5*(Y[i,j]^2 -
+  #          2 * Y[i,j] * EtaMprimLambdaM[i, j]
+  #        +
+  #          sum( (Lambda$Cov[,, j] + Lambda$M[, j]%*% t(Lambda$M[, j])) *
+  #                 (Eta$Cov[,, i] + Eta$M[, i]%*% t(Eta$M[,i])))
+  #   )
+  # }
+  # B <- expand.grid(j = 1:p,
+  #                  i = 1:n) %>%
+  #   pmap_dbl(GetB4Sig) %>%
+  #   matrix(nrow = p) %>%
+  #   apply(1, sum) %>%
+  #   {. + priors$Sigma$B}
+  list(A = A, B = B)
 }
 
-params$Sigma <- get_update_VI_Sigma(Y, params)
-
-######################
-get_update_VI_Phi <- function(Y, params){
+get_update_VI_Phi <- function(Y, params, priors){
   Lambda <- params$Lambda
   Eta <- params$Eta
   Delta <- params$Delta
   
   # le meme pour tous
-  A <- matrix(priors$Phi$A+0.5,p,q)
+  A <- matrix(priors$Phi$A + 0.5, p, q)
   
-  B=matrix(NA,p,q) 
   cumprodAoverB  = cumprod(Delta$A/Delta$B)
-  for (j in 1:p){
-    for (h in 1:q) {B[j,h]= priors$Phi$B+0.5*(Lambda$M[h,j]^2+Lambda$Cov[h,h,j])*
-      cumprodAoverB[h] }
-  }
-  
-  list(A=A,B=B)
+  B <- sapply(1:q, function(h){
+    priors$Phi$B + 
+      .5 * (Lambda$M[h, ]^2 + Lambda$Cov[h, h, ]) * cumprod(Delta$A/Delta$B)[h]
+  })
+  list(A = A, B = B)
 }
-params$Phi <- get_update_VI_Phi(Y, params) 
+
+# get_update_VI_Delta <- function(Y, params, priors){
+#   Lambda <- params$Lambda
+#   Eta <- params$Eta
+#   Phi <- params$Phi
+#   Delta <- params$Delta
+#   
+#   # Adevrait être initialisé une fois pour toutes
+#   A <- priors$Delta$A + 0.5 * p * (1 + q -(1:q))
+#   
+#   B <- Delta$B
+#   # Puis attention ce serait sans doute mieux une mise a jour séquentielle pour les B[h]
+#   # il faudra que A et B soient initialisés
+#   # quantités intermediares
+#   #Lambda2Phi[l] supprime la dépendance en j
+#   Lambda2Phi <- map_dbl(1:q, function(h){
+#     sum((Lambda$M[h, ]^2 + Lambda$Cov[h, h,]) * Phi$A[, h] / Phi$B[, h]) 
+#   })
+#   CoeffEnligne <- Lambda2Phi * cumprod(A / B) # Le 2e terme correspond au vecteur E[tau]
+#   CumSumCoeff <- cumsum(CoeffEnligne)
+#   CoeffEncolonne <- c((CumSumCoeff[q] - 0) / (A[1] / B[1]), # Pour le premier element
+#                       map_dbl(2:q, # Pour les suivants
+#                               function(h){
+#                                 (CumSumCoeff[q]-CumSumCoeff[h-1]) / (A[h] / B[h])
+#                               }))
+#   
+#   B <- priors$Delta$B + 0.5 * CoeffEncolonne
+#   list(A = A, B = B)
+# }
+
+
 
 ######################
-get_update_VI_Delta <- function(Y, params){
-  Lambda <- params$Lambda
-  Eta <- params$Eta
-  Phi <- params$Phi
-  Delta <- params$Delta
-  
-  # Adevrait être initialisé une fois pour toutes
-  A <- priors$Delta$a2+0.5*p*(1+q-(1:q))
-  A[1] <- priors$Delta$a1+0.5*p*q 
-  
-  B=Delta$B
-  # Puis attention ce serait sans doute mieux une mise a jour séquentielle pour les B[h]
- # il faudra que A et B soient initialisés
-  # quantités intermediares
-  #Lambda2Phi[l] supprime la dépendance en j
-  Lambda2Phi <- map_dbl(1:q, function(h){
-    sum(Lambda$M[h,]^2+Lambda$Cov[h,h,])
-  }) %>% as.vector()
-  CoeffEnligne= Lambda2Phi*cumprod(A/B)
-  CumSumCoeff<- cumsum(CoeffEnligne)
-  CoeffEncolonne <- map_dbl(2:q,function(k){(CumSumCoeff[q]-CumSumCoeff[k-1])/(A[k]/B[k])})
-  CoeffEncolonne <-c((CumSumCoeff[q]-0)/(A[1]/B[1]) , CoeffEncolonne)
-  
-  B <-1+0.5*CoeffEncolonne
-  
-  list(A,B)
-}
-
-params$Delta <- get_update_VI_Delta(Y, params) 
-
-######################
-
-get_update_Eta <- function(Y, Lambda_mat, sigma2_vec){
-  k_tilde <- ncol(Lambda_mat)
-  cov_matrix_Etas <- solve(diag(1, k_tilde) +
-                             t(Lambda_mat) %*% diag(1 / sigma2_vec) %*% Lambda_mat)
-  mu_Etas <- cov_matrix_Etas %*% t(Lambda_mat) %*% diag(1 / sigma2_vec) %*% t(Y)
-  sapply(1:nrow(Y), function(i){
-    rmvnorm(n = 1, mu = mu_Etas[, i], sigma = cov_matrix_Etas) %>%
-      as.numeric()
-  }) %>%
-    t()
-}
-
-get_update_Phi <- function(Lambda_mat, tau_vec, nu){
-  p <- nrow(Lambda_mat)
-  k_tilde <- ncol(Lambda_mat)
-  rgamma(p * k_tilde, 
-         .5 * (nu + 1), 
-         .5 * (nu + Lambda_mat^2 * tau_vec))
-}
-
-get_tau_minus <- function(delta_vec, h){
+get_expectation_tau_minus <- function(current_A, current_B, h){
+  expectations_delta <- current_A / current_B
   if(h == 1){
-    cumprod(c(1, delta_vec[-1]))
+    cumprod(c(1, expectations_delta[-1]))
   }
   else{
-    (cumprod(delta_vec) / delta_vec[h])[-c(1:(h - 1))]
+    (cumprod(expectations_delta) / expectations_delta[h])[-c(1:(h - 1))]
   }
 }
+
+get_update_VI_Delta <- function(Y, params, priors){
+  p <- ncol(Y)
+  q <- length(params$Delta$A)
+  expectation_Lambda2_Phi <- map_dbl(1:q, function(h){
+    sum((params$Lambda$M[h, ]^2 + params$Lambda$Cov[h, h,]) * 
+          params$Phi$A[, h] / params$Phi$B[, h]) 
+  })
+  new_A <- priors$Delta$A + 0.5 * p * (q + 1 - (1:q))
+  new_B <- params$Delta$B
+  new_B[1] <- priors$Delta$B + .5 * sum(get_expectation_tau_minus(new_A, new_B, 1) *
+                                          expectation_Lambda2_Phi)
+  for(h in 2:q){
+    new_B[h] <- priors$Delta$B + .5 * sum(get_expectation_tau_minus(new_A, new_B, h) *
+                                            expectation_Lambda2_Phi[-(1:(h - 1))])
+  }
+  list(A = new_A, B = new_B)
+}
+
+
 get_update_deltas <- function(delta_vec, Lambda_mat, Phi_mat, a_1, a_2){
   output <- delta_vec
   Lambda_Phi <- colSums(Lambda_mat^2 * Phi_mat)
   p <- nrow(Lambda_mat)
   k_tilde <- ncol(Lambda_mat)
-  output[1] <- rgamma(1, 
+  output[1] <- rgamma(1,
                       a_1 + .5 * p * k_tilde,
-                      1 + .5 * sum((get_tau_minus(output, 1) * Lambda_Phi))) 
+                      1 + .5 * sum((get_tau_minus(output, 1) * Lambda_Phi)))
   for(h in 2:k_tilde){
-    output[h] <- rgamma(1, 
+    output[h] <- rgamma(1,
                         a_2 + .5 * p * k_tilde,
                         1 + .5 * sum(get_tau_minus(output, h) * Lambda_Phi[-(1:(h - 1))]))
   }
   output
 }
 
-get_CAVI <- function(data_, n_steps, 
-                             k_tilde, 
-                             raw_output = TRUE,
-                             burn = 0,
-                             thin = 1,
-                             Lambda_true = NULL,
-                             Eta_true = NULL,
-                             sigma2s_true = NULL){
-  
-  # Needed quantities related to data
-  
+get_entropy_normal <- function(Cov){
+  0.5 * log(det(Cov))
+}
+
+get_entropy_gamma <- function(A, B){
+  A - log(B) + lgamma(A) + (1 - A) * digamma(A)
+}
+
+get_expectation_gamma <- function(A, B){
+  A / B
+}
+
+get_log_expectation_gamma <- function(A, B){
+  digamma(A) -  log(B)
+}
+
+get_ELBO <- function(Y, params, priors){
+  # Variational entropy term
+  variational_entropy <- sum(apply(params$Lambda$Cov, 3, 
+                                   get_entropy_normal)) + # Lambda
+    sum(apply(params$Eta$Cov, 3, get_entropy_normal)) + # Eta
+    sum(map2_dbl(params$Sigma$A, params$Sigma$B, # Sigma 
+                 .f = get_entropy_gamma)) + 
+    sum(map2_dbl(params$Delta$A, params$Delta$B, # Delta 
+                 .f = get_entropy_gamma)) + 
+    sum(map2_dbl(params$Phi$A, params$Phi$B, 
+                 .f = get_entropy_gamma))
+  # Usefull expectations
+  expectations_log_sigma <- get_log_expectation_gamma(params$Sigma$A, params$Sigma$B)
+  expectations_sigma <- get_expectation_gamma(params$Sigma$A, params$Sigma$B)
+  expectations_log_delta <- get_log_expectation_gamma(params$Delta$A, params$Delta$B)
+  expectations_delta <- get_expectation_gamma(params$Delta$A, params$Delta$B)
+  expectations_log_phi <- get_log_expectation_gamma(params$Phi$A, params$Phi$B)
+  expectations_phi <- get_expectation_gamma(params$Phi$A, params$Phi$B)
+  # Likelihood term
+  # We use the fact that B^{sigma_j} = b^{sigma_j} + .5(Y_j - eta \Lambda_j)'(Y_j - eta \Lambda_j)
+  # Thus, the expectation of the last term is already computed
+  likelihood_expectation <- sum(.5 * n * expectations_log_sigma -
+                                  expectations_sigma * (params$Sigma$B  - priors$Sigma$B))
+  # Priors terms
+  prior_sigma_expectation <- sum((priors$Sigma$A - 1) * expectations_log_sigma - 
+                                   priors$Sigma$B * expectations_sigma)
+  prior_phi_expectation <- sum((priors$Phi$A - 1) * expectations_log_phi - 
+                                 priors$Phi$B * expectations_phi)
+  prior_delta_expectation <- sum((priors$Delta$A - 1) * expectations_log_delta - 
+                                   priors$Delta$B * expectations_delta)
+  prior_eta_expectation <- -0.5 * sum(map_dbl(1:n, function(i){
+    sum(params$Eta$M[,i]^2 + diag(params$Eta$Cov[,, i]))
+  }))
+  prior_lambda_expectation <- 0.5 * q * sum(expectations_log_delta) +
+    0.5 * sum(expectations_log_phi) - 
+    0.5 * sum(map_dbl(1:p, function(j){
+      (cumprod(expectations_delta) * diag(expectations_phi[j, ]) %*% 
+        (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) %>% 
+        diag() %>% 
+        sum()
+    }))
+  ELBO <- variational_entropy +
+    likelihood_expectation +
+    prior_delta_expectation +
+    prior_eta_expectation +
+    prior_lambda_expectation +
+    prior_sigma_expectation +
+    prior_phi_expectation
+  return(ELBO)
+}
+
+
+get_CAVI <- function(data_, q, n_steps, 
+                     raw_output = TRUE,
+                     set_seed = FALSE,
+                     params = NULL,
+                     updates = c(Lambda = TRUE, Sigma = FALSE,
+                                Eta = FALSE, Delta = TRUE, Phi = TRUE)){
   p <- ncol(data_); n <- nrow(data_)
+  priors <- list(Sigma = list(A = 1, B = 3), 
+                 Phi = list(A= 3/2, B = 3/2),
+                 Delta= list(A= c(2, rep(3, q - 1)), 
+                             B = 1))
+  if(set_seed){
+    set.seed(set_seed)
+  }
+  if(is.null(params)){
+    params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
+                                 Cov = array(diag(1, q), dim = c(q, q, p))),
+                   Eta = list(M = matrix(rnorm(q * n), q, n),
+                              Cov = array(diag(1, q), dim = c(q, q, n))),
+                   Sigma = list(A = runif(p, 1, 3),
+                                B = runif(p, 1, 3)),
+                   Delta = list(A = runif(q, 2, 5) ,
+                                B = rep(1, q)),
+                   Phi = list(A = matrix(3/2, p, q),
+                              B = matrix(3/2, p, q)))
+  }
   
-  # Hyperparameters ---------------------------------------------------------
   
-  nu <- 3; a_sigma <- 3; b_sigma <- 2
- # a_1 <- 5; a_2 <- 2
-  a_1 <- 3; a_2 <- 2
-  # Creating outputs 
   
-  # First, Lambdas
-  if(!is.null(Lambda_true)){
-    Lambdas <- array(Lambda_true, dim = c(p, k_tilde, n_steps + 1))
-    update_Lambda = FALSE
-  }
-  else{
-    Lambdas <- array(dim = c(p, k_tilde, n_steps + 1))
-    update_Lambda = TRUE
-  } 
-  # Then, sigma2s
-  if(!is.null(sigma2s_true)){
-    sigma2s <- matrix(sigma2s_true, nrow = p, ncol = n_steps + 1)
-    update_Sigma = FALSE
-  }
-  else{
-    sigma2s <- matrix(nrow = p, ncol = n_steps + 1)
-    update_Sigma = TRUE
-  } 
-  # Then, Etas
-  if(!is.null(Eta_true)){
-    Etas <- array(Eta_true, dim = c(n, k_tilde, n_steps + 1))
-    update_Eta = FALSE
-  }
-  else{
-    Etas <- array(dim = c(n, k_tilde, n_steps + 1))
-    update_Eta = TRUE
-  }  
-  Phis <- array(dim = c(p, k_tilde, n_steps + 1))
-  deltas <- matrix(nrow = k_tilde, ncol = n_steps + 1)
-  taus <- matrix(nrow = k_tilde, ncol = n_steps + 1)
-  
-  # Initialisation of the chain
-  # deltas
-  deltas[1, 1] <- rgamma(1, a_1, 1)
-  deltas[-1, 1] <- rgamma(k_tilde - 1, a_2, 1)
-  # taus
-  taus[, 1] <- cumprod(deltas[, 1])
-  # Phis
-  Phis[,, 1] <- rgamma(p * k_tilde, nu / 2, nu / 2)
-  # sigma2s
-  if(update_Sigma){
-    sigma2s[, 1] <- 1 / sort(rgamma(p, a_sigma, b_sigma))
-  }
-  # Etas
-  if(update_Eta){
-    Etas[,, 1] <- rnorm(n * k_tilde)
-  }
-  # Lambda
-  if(update_Lambda){
-    Lambdas[,, 1] <- rnorm(p * k_tilde)
-  }
   # Propagation
-  progess_bar <- txtProgressBar(min = 0, max = n_steps)
-  for(step in 1:n_steps){
-    setTxtProgressBar(progess_bar, step)
+  # progess_bar <- txtProgressBar(min = 0, max = n_steps)
+  ELBOS <- data.frame(iteration = 0, 
+                      ELBO = get_ELBO(data_, params, priors))
+  foo <- function(param_){
+    print(paste("After ", param_))
+    print(get_ELBO(data_, params, priors))
+  }
+  foo("Init")
+  for(step_ in 1:n_steps){
     # Lambdas
-    if(update_Lambda){
-      Lambdas[,, step + 1] <- get_update_Lambda(Y = data_, 
-                                                Phi_mat = Phis[,, step], 
-                                                tau_vec = taus[, step], 
-                                                Eta_mat = Etas[,, step], 
-                                                sigma2_vec = sigma2s[, step])
+    if(updates["Lambda"]){
+      params$Lambda <- get_update_VI_Lambda(data_, params)
+      foo("Lambda")
     }
     # Sigma
-    if(update_Sigma){
-      sigma2s[, step + 1] <- get_update_Sigma(Y = data_,
-                                              Eta_mat = Etas[,, step], 
-                                              Lambda_mat = Lambdas[,, step + 1],
-                                              a_sigma = a_sigma, b_sigma = b_sigma)
+    if(updates["Sigma"]){
+      params$Sigma <- get_update_VI_Sigma(data_, params, priors)
+      foo("Sigma")
     }
     # Etas
-    if(update_Eta){
-      Etas[,, step + 1] <- get_update_Eta(Y = data_, 
-                                          Lambda_mat = Lambdas[,, step + 1],
-                                          sigma2_vec = sigma2s[, step + 1])
+    if(updates["Eta"]){
+      params$Eta <- get_update_VI_Eta(data_, params)
+      foo("Eta")
     }
     # Phis
-    Phis[,, step + 1] <- get_update_Phi(Lambda_mat = Lambdas[,, step + 1], 
-                                        tau_vec = taus[, step], 
-                                        nu = nu)
+    if(updates["Phi"]){
+      params$Phi <- get_update_VI_Phi(data_, params, priors)
+      foo("Phi")
+    }
+    if(updates["Delta"]){
     # deltas
-    deltas[, step + 1] <- get_update_deltas(delta_vec = deltas[, step], 
-                                            Lambda_mat = Lambdas[,, step + 1], 
-                                            Phi_mat =  Phis[,, step + 1], 
-                                            a_1 = a_1, a_2 = a_2)
-    taus[, step + 1] <- cumprod(deltas[, step + 1])
+      params$Delta <- get_update_VI_Delta(data_, params, priors)
+      foo("Delta")
+    }
+    if(n_steps){
+      ELBOS <- bind_rows(ELBOS,
+                         data.frame(iteration = step_,
+                                    ELBO = get_ELBO(data_, params, priors)))
+    }
   }
-  # Thin and burn
-  selection <- seq(from = burn + 1, to = n_steps + 1, by = thin)
-  Lambdas <- Lambdas[,, selection]
-  Etas <- Etas[,, selection]
-  sigma2s <- sigma2s[, selection]
-  deltas <- deltas[, selection]
-  taus <- taus[, selection]
-  Phis <- Phis[,, selection]
-  # Return
-  if(raw_output) 
-    result = list(Lambda = Lambdas, Eta = Etas, Sigma = sigma2s,
-                  deltas = deltas,
-                  taus = taus, Phi = Phis)
-  else{
-    # Formatting results
-    # Arrays
-    Lambda_df <- format_array(Lambdas, "Lambda")
-    Eta_df <- format_array(Etas, "eta")
-    Phi_df <- format_array(Phis, "phi")
-    # Matrices
-    deltas_df <- format_matrix(deltas, "delta")
-    taus_df <- format_matrix(taus, "tau")
-    sigma2_df <- format_matrix(sigma2s, "sigma", "^2")
-    result = bind_row(Lambda_df, Eta_df, Phi_df, deltas_df, taus_df, sigma2_df)
-  }
-  close(progess_bar)
-  return(result)
+  return(list(ELBOS = ELBOS, params = params))
 }
+
+
 
 # Function to format an array of estimated parameters to a data.frame
 # easily handle by ggplot2

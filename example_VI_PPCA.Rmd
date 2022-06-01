@@ -146,7 +146,7 @@ Wrapping up all the previous log density terms
 
 
 \begin{align*}
-ELBO=& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]\\
+\text{ELBO}=& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]\\
 & +\mathbb{E}_q\left[\frac{n}{2}\left(\sum_{j=1}^p \log\sigma_j^{-2} \right)-0.5\sum_{i=1}^n tr\left(\Sigma^{-1} (Y_i-\Lambda\eta_i')(Y'_i-\eta_i\Lambda')\right)\right]\\
 & + \mathbb{E}_q\left[\sum_{j=1}^p\left((a_\sigma -1)log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)\right]\\
 & + \mathbb{E}_q\left[\frac{1}{2}tr(\eta'\eta) \right]\\
@@ -166,8 +166,28 @@ A convenient way to maximize this function is to proceed iteratively via a coord
 Hence
 
  * $A^{\sigma}_j= a_\sigma+\frac{n}{2}$; 
- * $B^{\sigma}_j= b_\sigma+\frac{1}{2}\sum_{i=1}^n \mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)$; when developping the expression we get: $\mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)= \mathbb{E}_q (Y_{ij}^2)-2\mathbb{E}_q (Y_{ij})\mathbb{E}_q (\Lambda'_j\eta_i)+\sum_{h,h'}^{q,q} \mathbb{E}_q (\Lambda'_{jh}\Lambda'_{jh'}) \mathbb{E}_q (\eta_{i,h}\eta_{i,h'})$. The last term is the sum of the elements of the matrix resulting from a term-by-term multiplication of covariance matrices. Hence,  $\sum_{h,h'}^{q,q} \mathbb{E}_q (\Lambda'_{jh}\Lambda'_{jh'}) \mathbb{E}_q (\eta_{i,h}\eta_{i,h'})= \sum_{h,h'}^{q,q} \left(\mathbb{E}_q (\Lambda_{j})\mathbb{E}_q (\Lambda'_{j})+ \mathbb{V}_q (\Lambda_{j})\right) .\times. \left(\mathbb{E}_q (\eta_{i})\mathbb{E}_q (\eta'_{i})+ \mathbb{V}_q (\eta_{i})\right)$
+ * $B^{\sigma}_j= b_\sigma+\frac{1}{2}\sum_{i=1}^n \mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)$; when developping the expression we get: $\mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)= \mathbb{E}_q (Y_{ij}^2)-2\mathbb{E}_q (Y_{ij})\mathbb{E}_q (\Lambda'_j\eta_i)+\sum_{h,h'}^{q,q} \mathbb{E}_q (\Lambda'_{jh}\Lambda'_{jh'}) \mathbb{E}_q (\eta_{i,h}\eta_{i,h'})$. The last term is the sum of the elements of the matrix resulting from a term-by-term multiplication of covariance matrices. Hence,  $\sum_{h,h'}^{q,q} \mathbb{E}_q (\Lambda'_{jh}\Lambda'_{jh'}) \mathbb{E}_q (\eta_{i,h}\eta_{i,h'})= \sum_{h,h'}^{q,q} \left(\mathbb{E}_q (\Lambda_{j})\mathbb{E}_q (\Lambda'_{j})+ \mathbb{V}_q (\Lambda_{j})\right) .\times. \left(\mathbb{E}_q (\eta_{i})\mathbb{E}_q (\eta'_{i})+ \mathbb{V}_q (\eta_{i})\right)$.
  
+ **REMARK** I think the previous result is wrong, as it is assumed that $\mathbb{E}_q (\Lambda'_{jh}\Lambda'_{jh'}) = \left[\mathbb{E}_q (\Lambda_{j})\mathbb{E}_q (\Lambda'_{j})+ \mathbb{V}_q (\Lambda_{j})\right]_{h,h'}$.
+ 
+ Another way of solving is to notice is to rewrite (for a matrix $M$, denoting $M_j$ its $j-th$ column)
+ 
+ \begin{align*}
+ \log p(Y\vert \eta, \Lambda, \Sigma) &= \sum_{j = 1}^p \log p(Y_j\vert \eta, \Lambda_j, \Sigma) \\
+ &= \frac{n}{2}\sum_{j = 1}^p \log \sigma^{-2}_j - \frac{1}{2}\sum_{j = 1}^p \sigma^{-2}_j\left(Y_j - \eta \Lambda_j'\right)^T\left(Y_j - \eta \Lambda_j'\right).
+ \end{align*}
+Now, we need to compute the expectation of the right hand term with respect to $\eta$ and $\Lambda_j$. We note that:
+\begin{align*}
+\left(Y_j - \eta \Lambda_j'\right)^T\left(Y_j - \eta \Lambda_j'\right) &= Y_j^TY_j - 2 Y_j^T\eta \Lambda_j' + \Lambda_j'^T \eta^T\eta \Lambda_j'\\
+&=Y_j^TY_j - 2 Y_j^T\eta \Lambda_j' + \text{Tr}\left(\eta^T\eta \Lambda_j' \Lambda_j'^T \right).
+\end{align*}
+Thus, taking expectations, we have:
+$$\mathbb{E}\left[ \left(Y_j - \eta \Lambda_j'\right)^T\left(Y_j - \eta \Lambda_j'\right) \right] = Y_j^TY_j - 2 Y_j^T\mathbb{E}[\eta] \mathbb{E}[\Lambda_j'] + \text{Tr}\left(\mathbb{E}[\eta^T\eta]\mathbb{E}\left[\Lambda_j' \Lambda_j'^T\right] \right)$$
+Now, use the fact that (denoting this time $\eta_i$ the $i$-th row of $\eta$):
+$$\mathbb{E}[\eta^T\eta] = \sum_{i = 1}^n\mathbb{E}\left[\eta_i\eta_i^T\right] = \sum_{i = 1}^n\left(\mathbb{E}\left[\eta_i\right]\mathbb{E}\left[\eta_i\right]^T + \mathbb{V}\left[\eta_i\right]\right).$$
+Note that this matrix has to be computed only once for each $j$, and we conclude, using the fact that $\mathbb{E}\left[\Lambda_j' \Lambda_j'^T\right] = \mathbb{E}\left[\Lambda_j'\right]\mathbb{E}\left[\Lambda_j'^T\right] + \mathbb{V}\left[\Lambda_j'\right]$, we have that:
+$$B^{\sigma_j}= b_\sigma+\frac{1}{2}\sum_{i=1}^n \left(Y_j^TY_j - 2 Y_j^T\mathbb{E}[\eta] \mathbb{E}[\Lambda_j'] + \text{Tr}\left(\mathbb{E}[\eta^T\eta]\left(\mathbb{E}\left[\Lambda_j'\right]\mathbb{E}\left[\Lambda_j'^T\right] + \mathbb{V}\left[\Lambda_j'\right]\right)\right)\right)$$
+
  * $A^{\phi}_{jh}= \frac{\gamma}{2}+\frac{1}{2}$; 
  * $B^{\phi}_{jh}=\frac{\gamma}{2}+\frac{1}{2}\mathbb{E}_q (\Lambda_{jh} ^2 ) \prod_{k=1}^h \mathbb{E}_q (\delta_k)$; 
  
