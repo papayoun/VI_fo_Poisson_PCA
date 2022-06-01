@@ -124,7 +124,6 @@ get_update_VI_Phi <- function(Y, params, priors){
 
 
 
-######################
 get_expectation_tau_minus <- function(current_A, current_B, h){
   expectations_delta <- current_A / current_B
   if(h == 1){
@@ -151,23 +150,6 @@ get_update_VI_Delta <- function(Y, params, priors){
                                             expectation_Lambda2_Phi[-(1:(h - 1))])
   }
   list(A = new_A, B = new_B)
-}
-
-
-get_update_deltas <- function(delta_vec, Lambda_mat, Phi_mat, a_1, a_2){
-  output <- delta_vec
-  Lambda_Phi <- colSums(Lambda_mat^2 * Phi_mat)
-  p <- nrow(Lambda_mat)
-  k_tilde <- ncol(Lambda_mat)
-  output[1] <- rgamma(1,
-                      a_1 + .5 * p * k_tilde,
-                      1 + .5 * sum((get_tau_minus(output, 1) * Lambda_Phi)))
-  for(h in 2:k_tilde){
-    output[h] <- rgamma(1,
-                        a_2 + .5 * p * k_tilde,
-                        1 + .5 * sum(get_tau_minus(output, h) * Lambda_Phi[-(1:(h - 1))]))
-  }
-  output
 }
 
 get_entropy_normal <- function(Cov){
@@ -219,13 +201,11 @@ get_ELBO <- function(Y, params, priors){
   prior_eta_expectation <- -0.5 * sum(map_dbl(1:n, function(i){
     sum(params$Eta$M[,i]^2 + diag(params$Eta$Cov[,, i]))
   }))
-  prior_lambda_expectation <- 0.5 * q * sum(expectations_log_delta) +
+  prior_lambda_expectation <- 0.5 * p * sum(cumsum(expectations_log_delta)) +
     0.5 * sum(expectations_log_phi) - 
     0.5 * sum(map_dbl(1:p, function(j){
-      (cumprod(expectations_delta) * diag(expectations_phi[j, ]) %*% 
-         (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) %>% 
-        diag() %>% 
-        sum()
+      sum(cumprod(expectations_delta) * diag(expectations_phi[j, ]) * 
+            (diag(params$Lambda$Cov[,, j]) + params$Lambda$M[, j]^2))
     }))
   ELBO <- variational_entropy +
     likelihood_expectation +
@@ -239,16 +219,15 @@ get_ELBO <- function(Y, params, priors){
 
 
 get_CAVI <- function(data_, q, n_steps, 
-                     raw_output = TRUE,
                      set_seed = FALSE,
                      params = NULL,
-                     updates = c(Lambda = TRUE, Sigma = FALSE,
-                                 Eta = FALSE, Delta = TRUE, Phi = TRUE)){
+                     updates = c(Lambda = TRUE, Sigma = TRUE,
+                                 Eta = TRUE, Delta = TRUE, Phi = TRUE),
+                     priors = list(Sigma = list(A = 1, B = 3), 
+                                   Phi = list(A = 3/2, B = 3/2),
+                                   Delta= list(A = c(2, rep(3, q - 1)), 
+                                               B = 1))){
   p <- ncol(data_); n <- nrow(data_)
-  priors <- list(Sigma = list(A = 1, B = 3), 
-                 Phi = list(A= 3/2, B = 3/2),
-                 Delta= list(A= c(2, rep(3, q - 1)), 
-                             B = 1))
   if(set_seed){
     set.seed(set_seed)
   }
@@ -265,8 +244,6 @@ get_CAVI <- function(data_, q, n_steps,
                               B = matrix(3/2, p, q)))
   }
   
-  
-  
   # Propagation
   # progess_bar <- txtProgressBar(min = 0, max = n_steps)
   ELBOS <- data.frame(iteration = 0, 
@@ -282,15 +259,15 @@ get_CAVI <- function(data_, q, n_steps,
       params$Lambda <- get_update_VI_Lambda(data_, params)
       foo("Lambda")
     }
-    # Sigma
-    if(updates["Sigma"]){
-      params$Sigma <- get_update_VI_Sigma(data_, params, priors)
-      foo("Sigma")
-    }
     # Etas
     if(updates["Eta"]){
       params$Eta <- get_update_VI_Eta(data_, params)
       foo("Eta")
+    }
+    # Sigma
+    if(updates["Sigma"]){
+      params$Sigma <- get_update_VI_Sigma(data_, params, priors)
+      foo("Sigma")
     }
     # Phis
     if(updates["Phi"]){
