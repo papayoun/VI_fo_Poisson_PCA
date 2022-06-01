@@ -61,36 +61,19 @@ get_update_VI_Sigma <- function(Y, params, priors){
   Phi <- params$Phi
   Delta <- params$Delta
   A <- rep(priors$Sigma$A + n / 2, p)
-  esp_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) +
-    Reduce("+", map(1:n, function(i){
-      Eta$M[, i] %*% t(Eta$M[, i])
-    }))
+  esp_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
+    Reduce(f = "+", 
+           x = map(1:n, function(i){
+             Eta$M[, i] %*% t(Eta$M[, i])
+           }))
   get_Bj <- function(j){
     term1 <- sum(0.5 * sum(Y[, j] * Y[, j]))
-    term2 <- -sum(Y[, j] * t(Eta$M) %*% Lambda$M[,j])
-    term3 <- esp_eta_prime_eta %*%
-      (Lambda$Cov[,, j] + Lambda$M[, j]%*% t(Lambda$M[, j])) %>%
-      diag() %>% # Get the trace
-      sum() %>%
-      {0.5 * .}
+    term2 <- -sum(Y[, j] * (t(Eta$M) %*% Lambda$M[,j])) # Eta$M is coded in q x n
+    term3 <- 0.5 * sum(esp_eta_prime_eta * 
+                         (Lambda$Cov[,, j] + Lambda$M[, j] %*% t(Lambda$M[, j]))) 
     term1 + term2 + term3
   }
   B <- priors$Sigma$B + map_dbl(1:p, get_Bj)
-  # EtaMprimLambdaM<-(t(Eta$M)%*%Lambda$M) # matrice(n,p)
-  # GetB4Sig = function(j,i){
-  #   0.5*(Y[i,j]^2 -
-  #          2 * Y[i,j] * EtaMprimLambdaM[i, j]
-  #        +
-  #          sum( (Lambda$Cov[,, j] + Lambda$M[, j]%*% t(Lambda$M[, j])) *
-  #                 (Eta$Cov[,, i] + Eta$M[, i]%*% t(Eta$M[,i])))
-  #   )
-  # }
-  # B <- expand.grid(j = 1:p,
-  #                  i = 1:n) %>%
-  #   pmap_dbl(GetB4Sig) %>%
-  #   matrix(nrow = p) %>%
-  #   apply(1, sum) %>%
-  #   {. + priors$Sigma$B}
   list(A = A, B = B)
 }
 
@@ -240,7 +223,7 @@ get_ELBO <- function(Y, params, priors){
     0.5 * sum(expectations_log_phi) - 
     0.5 * sum(map_dbl(1:p, function(j){
       (cumprod(expectations_delta) * diag(expectations_phi[j, ]) %*% 
-        (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) %>% 
+         (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) %>% 
         diag() %>% 
         sum()
     }))
@@ -260,7 +243,7 @@ get_CAVI <- function(data_, q, n_steps,
                      set_seed = FALSE,
                      params = NULL,
                      updates = c(Lambda = TRUE, Sigma = FALSE,
-                                Eta = FALSE, Delta = TRUE, Phi = TRUE)){
+                                 Eta = FALSE, Delta = TRUE, Phi = TRUE)){
   p <- ncol(data_); n <- nrow(data_)
   priors <- list(Sigma = list(A = 1, B = 3), 
                  Phi = list(A= 3/2, B = 3/2),
@@ -315,7 +298,7 @@ get_CAVI <- function(data_, q, n_steps,
       foo("Phi")
     }
     if(updates["Delta"]){
-    # deltas
+      # deltas
       params$Delta <- get_update_VI_Delta(data_, params, priors)
       foo("Delta")
     }
