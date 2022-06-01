@@ -53,19 +53,39 @@ library(extraDistr) # For the non standart t distribution
 
 Bhattacharya and Dunson consider the following linear normal model with a gamma process to shrink the variances of the columns of the latent matrix $\lambda$:
 \begin{align*}
-Y_i &\sim_{ind.} \mathcal{N}_p(\Lambda\eta_i, \Sigma)\;,\; 1\leq i \leq n \\
-\Sigma &= diag(\sigma_j^{-2}),\; 1\leq j \leq p \\
-\sigma_j^{-2}|(a_{\sigma},b_{\sigma}) &\sim \Gamma(a_{\sigma},b_{\sigma})\\
-\lambda_{jh} &\sim \mathcal{N}_{q}(0,\,\phi_{jh}^{-1}\tau_{h}^{-1})
-\; 1 \leq h \leq {q} \\
-\phi_{jh} &\sim \Gamma(\frac{\nu}{2},\frac{\nu}{2})\\
-\tau_{h} &= \prod_{l=1}^h \delta_l \\ 
-\delta_1 &\sim \Gamma(a_1,1) \\
-\delta_l &\sim \Gamma(a_2,1) \ \forall l \geq 2
+Y_i &
+\overset{ind.}{\sim} \mathcal{N}_p(\Lambda\eta_i, \Sigma^{-1}), &
+1\leq i \leq n 
+\\
+\Sigma &= 
+\text{diag}(\sigma_j^{-2}), &
+1\leq j \leq p 
+\\
+\sigma_j^{-2}|(a_{\sigma},b_{\sigma}) &
+\sim \Gamma(a_{\sigma},b_{\sigma}) &
+1\leq j \leq p
+\\
+\Lambda_{jh} &
+\sim \mathcal{N}_{q}(0,\,\phi_{jh}^{-1}\tau_{h}^{-1}), &
+1\leq j \leq p, 1 \leq h \leq {q}
+\\
+\phi_{jh} &
+\sim \Gamma(\frac{\nu}{2},\frac{\nu}{2}), &
+1\leq j \leq p, 1 \leq h \leq {q}\\
+\tau_{h} &
+= \prod_{l=1}^h \delta_l &
+1\leq h \leq q
+\\ 
+\delta_1 &
+\sim \Gamma(a_1,1) &
+\\
+\delta_h &
+\sim \Gamma(a_2,1) &
+\forall l \geq 2
 \end{align*}
 
 Recall that -- up to constant terms-- the logdensity of such a Normal multivariate distribution is:
-$$\log[Y|\Lambda,\Sigma] = -\frac{n}{2}\left(log\vert C\vert +tr(C^{-1}\hat{S}_Y)\right)$$
+$$\log[Y|\Lambda,\Sigma] = -\frac{n}{2}\left(\log\vert C\vert +\text{Tr}(C^{-1}\hat{S}_Y)\right)$$
 with
 
 $$ C= \Lambda\Lambda'+\Sigma\\
@@ -83,26 +103,46 @@ Y <- read.table("data_PPCA.txt", sep = ";") %>%
 ```
 
 
-# Variationnal approach
+# Variational approach
 
-We denote $Z$ the unknown with components $(\tau,\phi,\eta,\Lambda,\Sigma)$ and choose an independent family $\left(\prod_u q_{z_u}(Z_u) \right)$ to approximate $[Z|Y]$ such that :
+## Variational family
+
+We denote $Z$ the unknown with components $(\tau,\phi,\eta,\Lambda,\Sigma)$ and choose an independent family $q(Z) = \left(\prod_u q_{z_u}(Z_u) \right)$ to approximate $[Z|Y]$ such that :
 \begin{align*}
-\delta_h &\sim q_{\delta_h}(\cdot)= \mathcal{G}(A^{\delta}_h,B^{\delta}_h)\;,\; 1\leq h \leq q \\
-\phi_{jh} &\sim q_{\phi_{jh}}(\cdot)= \mathcal{G}(A^{\phi}_{jh},B^{\phi}_{jh})\;,\; 1\leq j \leq p \;,\; 1\leq h \leq q\\
-\sigma^{-2}_{j} &\sim q_{\sigma^{-2}_{j}}(\cdot)= \mathcal{G}(A^{\sigma}_j,B^{\sigma}_j)\;,\; 1\leq j \leq p \\
-\eta_i &\sim q_{\eta_i}(\cdot)= \mathcal{N}(M_{\eta_i},(V^{\eta_i}))\;,\; 1\leq i \leq n \\
-\lambda_j &\sim q_{\lambda_j }(\cdot)= \mathcal{N}(M_{\lambda_j},(V^{\lambda_j}))\;,\; 1\leq j \leq p 
+\delta_h &
+\sim q_{\delta_h}(\cdot)= \mathcal{G}(A^{\delta}_h,B^{\delta}_h), &
+1\leq h \leq q 
+\\
+\phi_{jh} &
+\sim q_{\phi_{jh}}(\cdot)= \mathcal{G}(A^{\phi}_{jh},B^{\phi}_{jh}),  &
+1\leq j \leq p, 1\leq h \leq q
+\\
+\sigma^{-2}_{j} &
+\sim q_{\sigma^{-2}_{j}}(\cdot) = \mathcal{G}(A^{\sigma}_j,B^{\sigma}_j), &
+1\leq j \leq p 
+\\
+\eta_i &
+\sim q_{\eta_i}(\cdot)= \mathcal{N}(M_{\eta_i}, V^{\eta_i}), & 
+1\leq i \leq n
+\\
+\Lambda_j &
+\sim q_{\Lambda_j }(\cdot)= \mathcal{N}(M_{\lambda_j},V^{\Lambda_j}), &
+1\leq j \leq p, 
 \end{align*}
-We rely on the minimisation of the Kullback Liebler divergence
-$KL= \mathbb{E}_q\left[\log\frac{q(Z}{[Z|Y]}\right]$.
+where $\eta_i$ denotes the $i$-th row of yhe $n\times q$ matrix $\eta$, and $\Lambda_j$ denotes the $j$-th row of the $p\times q$ matrix $\Lambda$. In the following, all vectors are treated as column vectors.
+
+## Evidence lower bound
+
+To update parameters, we rely on the minimisation of the Kullback Liebler divergence
+$KL= \mathbb{E}_q\left[\log\frac{q(Z)}{[Z|Y]}\right]$.
 Equivalently we want to maximize the ELBO
 
-$$ELBO= \mathbb{E}_q\left[\log[Y,\tau,\phi,\eta,\Lambda,\sigma^{-2}]\right]-\mathbb{E}_q\left[\log q(\tau,\phi,\eta,\Lambda,\sigma^{-2})\right]$$
+$$\text{ELBO}= \mathbb{E}_q\left[\log[Y,\tau,\phi,\eta,\Lambda,\sigma^{-2}]\right]-\mathbb{E}_q\left[\log q(\tau,\phi,\eta,\Lambda,\sigma^{-2})\right]$$
 
 Due to conditionnal independence the criterion can decomposed as 
 
 \begin{align*}
-ELBO=&\mathbb{E}_q\left[\log\left([Y|\eta,\Lambda,\Sigma]\right)\right]\\
+\text{ELBO}=&\mathbb{E}_q\left[\log\left([Y|\eta,\Lambda,\Sigma]\right)\right]\\
 & + \mathbb{E}_q\left[\log\left([\Sigma]\right)\right]\\
 & + \mathbb{E}_q\left[\log\left([\eta]\right) \right]\\
 & + \mathbb{E}_q\left[\log\left([\Lambda|\delta,\phi]\right)\right]\\
@@ -111,36 +151,43 @@ ELBO=&\mathbb{E}_q\left[\log\left([Y|\eta,\Lambda,\Sigma]\right)\right]\\
 & -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]
 \end{align*}
 
+## Terms to integrate
+
 Up to constant terms:
-$$\log[Y|\Lambda,\Sigma,\eta] = -\frac{n}{2}\left(log\vert \Sigma^{-1}\vert +tr(\Sigma^{-1}\hat{S}_{Y,\eta,\Lambda})\right)$$
+\begin{align*}
+\log[Y|\Lambda,\Sigma,\eta]  &
+= \frac{n}{2}\sum_{j = 1}^p \log \sigma^{-2}_j - \frac{1}{2}\sum_{j = 1}^p \sigma^{-2}_j\left(Y^{j} - \eta \Lambda_j'\right)^T\left(Y^{j} - \eta \Lambda_j'\right)
+\\
+&= -\frac{n}{2}\left(\log\vert \Sigma^{-1}\vert +\text{Tr}(\Sigma^{-1}\hat{S}_{Y,\eta,\Lambda})\right),
+\end{align*}
 with
 
 $$ \hat{S}_{Y,\eta,\Lambda}=\frac{1}{n}\sum_{i=1}^n (Y_i-\Lambda\eta_i')(Y'_i-\eta_i\Lambda')\\
-= \frac{1}{n} (Y'-\eta\Lambda')(Y-\lambda\eta')$$
+= \frac{1}{n} (Y'-\eta\Lambda')(Y-\lambda\eta').$$
 
 
-and 
-$$\log[\eta] = -\frac{n}{2}\left(log\vert I_p\vert +tr(I_p\hat{S}_{\eta})\right)$$
-with
-
-$$ \hat{S}_{\eta}=\frac{1}{n}\sum_{i=1}^n \eta_i\eta_i'\\
- = \frac{1}{n} \eta'\eta$$
- 
-
+Continuing (still up ton constant terms), we have for $\eta$:
+$$\log[\eta] = -\frac{1}{2}\sum_{i = 1}^n \eta_i^T\eta_i = -\frac{1}{2}\text{Tr}\left(\eta'\eta\right).$$
 Since $\Sigma$ is diagonal:
 
-$$\log[\Sigma^{-1}] = \sum_{j=1}^p\left((a_\sigma -1)log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)$$
+$$\log[\Sigma^{-1}] = \sum_{j=1}^p\left((a_\sigma -1)\log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)$$
 
-Due to normal assumptions for $\Lambda$
+Due to normal assumptions for $\Lambda_j$
 
-$$\log\left([\Lambda_{jh}|\tau_{h},\phi_{jh}]\right)=0.5log(\phi_{jh})-0.5\Lambda_{jh}^2\phi_{jh}\prod_{k=1}^h \delta_k+0.5\sum_{k=1}^h log(\delta_k) $$
-with gamma shrinkage process for the precision
+$$\log\left([\Lambda_{j}|\tau_{h},\phi_{j,h}]\right)= \frac{1}{2}\sum_{h = 1}^q \left(\log \phi_{j,h} + \sum_{\ell = 1}^h\log \delta_\ell\right) - \frac{1}{2}\text{Tr}\left(\text{diag}\left(\phi_{j,h}\prod_{\ell = 1}^h\delta_\ell\right)\Lambda_{j}\Lambda_{j}^T \right).$$
+Remains the with the prior for $\phi_{j,h}\;(1\leq j \leq p, 1\leq h \leq q)$:
 
-$$\log[\phi_{jh}] = (\frac{1}{ 2} \gamma -1)log(\phi_{jh}) -\frac{1}{ 2}\phi_{jh}$$
-$$\log[\delta_{1}] = (a_1 -1)log(\delta_{1}) -b_{1} \delta_{1}\\
-\log[\delta_{2}] = (a_2 -1)log(\delta_{2}) -b_{2} \delta_{2}\\
-\cdots \\
-\log[\delta_{h}] = (a_2 -1)log(\delta_{h}) -b_{2} \delta_{h} \; , \; h\ge 2$$
+$$\log[\phi_{jh}] = \left(\frac{\nu}{ 2} - 1\right)\log(\phi_{j,h}) -\frac{\nu}{ 2}\phi_{jh},$$
+and $\delta_h\; (1\leq h \leq q)$
+
+$$\log[\delta_{h}] = \left\lbrace 
+\begin{array}{lr}
+(a_1 -1)\log(\delta_{1}) -b_{1} \delta_{1} & \text{ if } h = 1,\\
+(a_2 -1)\log(\delta_{2}) -b_{2} \delta_{2} & \text{ else.}
+\end{array}
+\right.
+$$
+
 
 Wrapping up all the previous log density terms
 
@@ -159,11 +206,26 @@ Wrapping up all the previous log density terms
 \end{align*}
 
 
-Note that in all cases, expectations are  analytically available.
+<!-- Note that in all cases, expectations are  analytically available. -->
 
-A convenient way to maximize this function is to proceed iteratively via a coordinate ascent algorithm. 
+## Updates for the coordinate ascent algorithm
 
-Hence
+A convenient way to maximize the ELBO in the context of conjugate mean field family is to proceed iteratively via a coordinate ascent algorithm. 
+
+For any unknown component $Z_u$, the variational parameters are updated by identifying the distribution given by $\mathbb{E}{q_{-u}}\left[f(Z_u,Z_{-u})\right]$, where $Z_{-u}$ denotes all the hidden random variables except $Z_u$, $\mathbb{E}_{q_{-u}}$ denotes the expectation with respect to these random variables, and $f(Z_u,Z_{-u})$ denotes all the terms in the ELBO that depend on $Z_u$ (and potentially $Z_{-u}$). 
+
+Let's illustrate this on the random variable $\sigma^{-2}_j$:
+
+### Updates for $\sigma^{-2}_j$
+
+In the ELBO, we see that
+$$
+f_{\sigma^{-2}_j}(Z_{\sigma^{-2}_j}, Z_{-\sigma^{-2}_j}) = (a_\sigma -1)\log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2} + \frac{n}{2} \log \sigma^{-2}_j - \frac{1}{2} \sigma^{-2}_j\left(Y^{j} - \eta \Lambda_j\right)^T\left(Y^{j} - \eta \Lambda_j\right)
+$$
+
+Hence, 
+$$\mathbb{E}_{q_{-\sigma^{-2}_j}}[f_{\sigma^{-2}_j}(Z_{\sigma^{-2}_j}, Z_{-\sigma^{-2}_j})] = \left(a_\sigma + \frac{n}{2} - 1\right)\log \sigma^{-2}_j - \left(b_{\sigma} + \frac{1}{2}\mathbb{E}_{q_{\eta,\Lambda_j}}\left[\left(Y^{j} - \eta \Lambda_j\right)^T\left(Y^{j} - \eta \Lambda_j\right)\right] \right)
+$$
 
  * $A^{\sigma}_j= a_\sigma+\frac{n}{2}$; 
  * $B^{\sigma}_j= b_\sigma+\frac{1}{2}\sum_{i=1}^n \mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)$; when developping the expression we get: $\mathbb{E}_q ((Y_{ij}-\Lambda'_j\eta_i)^2)= \mathbb{E}_q (Y_{ij}^2)-2\mathbb{E}_q (Y_{ij})\mathbb{E}_q (\Lambda'_j\eta_i)+\sum_{h,h'}^{q,q} \mathbb{E}_q (\Lambda'_{jh}\Lambda'_{jh'}) \mathbb{E}_q (\eta_{i,h}\eta_{i,h'})$. The last term is the sum of the elements of the matrix resulting from a term-by-term multiplication of covariance matrices. Hence,  $\sum_{h,h'}^{q,q} \mathbb{E}_q (\Lambda'_{jh}\Lambda'_{jh'}) \mathbb{E}_q (\eta_{i,h}\eta_{i,h'})= \sum_{h,h'}^{q,q} \left(\mathbb{E}_q (\Lambda_{j})\mathbb{E}_q (\Lambda'_{j})+ \mathbb{V}_q (\Lambda_{j})\right) .\times. \left(\mathbb{E}_q (\eta_{i})\mathbb{E}_q (\eta'_{i})+ \mathbb{V}_q (\eta_{i})\right)$.
@@ -173,20 +235,20 @@ Hence
  Another way of solving is to notice is to rewrite (for a matrix $M$, denoting $M_j$ its $j-th$ column)
  
  \begin{align*}
- \log p(Y\vert \eta, \Lambda, \Sigma) &= \sum_{j = 1}^p \log p(Y_j\vert \eta, \Lambda_j, \Sigma) \\
- &= \frac{n}{2}\sum_{j = 1}^p \log \sigma^{-2}_j - \frac{1}{2}\sum_{j = 1}^p \sigma^{-2}_j\left(Y_j - \eta \Lambda_j'\right)^T\left(Y_j - \eta \Lambda_j'\right).
+ \log p(Y\vert \eta, \Lambda, \Sigma) &= \sum_{j = 1}^p \log p(Y^{j}\vert \eta, \Lambda_j, \Sigma) \\
+ &= \frac{n}{2}\sum_{j = 1}^p \log \sigma^{-2}_j - \frac{1}{2}\sum_{j = 1}^p \sigma^{-2}_j\left(Y^{j} - \eta \Lambda_j'\right)^T\left(Y^{j} - \eta \Lambda_j'\right).
  \end{align*}
 Now, we need to compute the expectation of the right hand term with respect to $\eta$ and $\Lambda_j$. We note that:
 \begin{align*}
-\left(Y_j - \eta \Lambda_j'\right)^T\left(Y_j - \eta \Lambda_j'\right) &= Y_j^TY_j - 2 Y_j^T\eta \Lambda_j' + \Lambda_j'^T \eta^T\eta \Lambda_j'\\
-&=Y_j^TY_j - 2 Y_j^T\eta \Lambda_j' + \text{Tr}\left(\eta^T\eta \Lambda_j' \Lambda_j'^T \right).
+\left(Y^{j} - \eta \Lambda_j'\right)^T\left(Y^{j} - \eta \Lambda_j'\right) &= (Y^{j})^TY^{j} - 2 (Y^{j})^T\eta \Lambda_j' + \Lambda_j'^T \eta^T\eta \Lambda_j'\\
+&=(Y^{j})^TY^{j} - 2 (Y^{j})^T\eta \Lambda_j' + \text{Tr}\left(\eta^T\eta \Lambda_j' \Lambda_j'^T \right).
 \end{align*}
 Thus, taking expectations, we have:
-$$\mathbb{E}\left[ \left(Y_j - \eta \Lambda_j'\right)^T\left(Y_j - \eta \Lambda_j'\right) \right] = Y_j^TY_j - 2 Y_j^T\mathbb{E}[\eta] \mathbb{E}[\Lambda_j'] + \text{Tr}\left(\mathbb{E}[\eta^T\eta]\mathbb{E}\left[\Lambda_j' \Lambda_j'^T\right] \right)$$
+$$\mathbb{E}\left[ \left(Y^{j} - \eta \Lambda_j'\right)^T\left(Y^{j} - \eta \Lambda_j'\right) \right] = (Y^{j})^TY^{j} - 2 (Y^{j})^T\mathbb{E}[\eta] \mathbb{E}[\Lambda_j'] + \text{Tr}\left(\mathbb{E}[\eta^T\eta]\mathbb{E}\left[\Lambda_j' \Lambda_j'^T\right] \right)$$
 Now, use the fact that (denoting this time $\eta_i$ the $i$-th row of $\eta$):
 $$\mathbb{E}[\eta^T\eta] = \sum_{i = 1}^n\mathbb{E}\left[\eta_i\eta_i^T\right] = \sum_{i = 1}^n\left(\mathbb{E}\left[\eta_i\right]\mathbb{E}\left[\eta_i\right]^T + \mathbb{V}\left[\eta_i\right]\right).$$
 Note that this matrix has to be computed only once for each $j$, and we conclude, using the fact that $\mathbb{E}\left[\Lambda_j' \Lambda_j'^T\right] = \mathbb{E}\left[\Lambda_j'\right]\mathbb{E}\left[\Lambda_j'^T\right] + \mathbb{V}\left[\Lambda_j'\right]$, we have that:
-$$B^{\sigma_j}= b_\sigma+\frac{1}{2}\sum_{i=1}^n \left(Y_j^TY_j - 2 Y_j^T\mathbb{E}[\eta] \mathbb{E}[\Lambda_j'] + \text{Tr}\left(\mathbb{E}[\eta^T\eta]\left(\mathbb{E}\left[\Lambda_j'\right]\mathbb{E}\left[\Lambda_j'^T\right] + \mathbb{V}\left[\Lambda_j'\right]\right)\right)\right)$$
+$$B^{\sigma_j}= b_\sigma+\frac{1}{2}\sum_{i=1}^n \left((Y^{j})^TY^{j} - 2 (Y^{j})^T\mathbb{E}[\eta] \mathbb{E}[\Lambda_j'] + \text{Tr}\left(\mathbb{E}[\eta^T\eta]\left(\mathbb{E}\left[\Lambda_j'\right]\mathbb{E}\left[\Lambda_j'^T\right] + \mathbb{V}\left[\Lambda_j'\right]\right)\right)\right)$$
 
  * $A^{\phi}_{jh}= \frac{\gamma}{2}+\frac{1}{2}$; 
  * $B^{\phi}_{jh}=\frac{\gamma}{2}+\frac{1}{2}\mathbb{E}_q (\Lambda_{jh} ^2 ) \prod_{k=1}^h \mathbb{E}_q (\delta_k)$; 
@@ -217,7 +279,7 @@ $$B^{\sigma_j}= b_\sigma+\frac{1}{2}\sum_{i=1}^n \left(Y_j^TY_j - 2 Y_j^T\mathbb
  * Then the precision, $(V^{\lambda_j})^{-1}=\tilde{P}^{\lambda_j}+diag(\frac{A^{\phi_{jh}}}{B^{\phi_{jh}}} \prod_{l=1}^h\frac{A^{\delta_{l}}}{B^{\delta_{l}}} )$
  
  * And subsequently the variational mean
- $M^{\lambda_j}=V^{\lambda_j}\left(\frac{A^{\sigma_j}}{B^{\sigma_j}}\right) {M^{\eta}}'Y_j$
+ $M^{\lambda_j}=V^{\lambda_j}\left(\frac{A^{\sigma_j}}{B^{\sigma_j}}\right) {M^{\eta}}'Y^{j}$
  
  These update equations are implemented within functions.
  
