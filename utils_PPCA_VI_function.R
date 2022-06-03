@@ -8,14 +8,14 @@ get_update_VI_Lambda <- function(Y, params){
   Phi <- params$Phi
   Delta <- params$Delta
   mean_eta_prime_eta <- map(1:n, function(i){
-    Eta$Cov[,, i] + Eta$M[, i] %*% t(Eta$M[, i])
+    Eta$Cov[,, i] + (Eta$M[, i] %*% t(Eta$M[, i]))
   }) %>% 
     Reduce(f = "+")
   # Calcul des precisions
   Cov <- map(1:p, function(j){
     partial_precision <- Sigma$A[j] / Sigma$B[j] * mean_eta_prime_eta
     precision <- partial_precision + 
-      Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B)
+      diag(Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B))
     variance <- solve(precision)
     return(variance)
   }) %>% 
@@ -37,7 +37,7 @@ get_update_VI_Eta <- function(Y, params){
   
   # Calcul des precisions (la même pour tous les j!) 
   precision <- map(1:p, function(j){
-    Sigma$A[j] / Sigma$B[j] * Lambda$Cov[,,j]
+    Sigma$A[j] / Sigma$B[j] * (Lambda$M[,j] %*% t(Lambda$M[,j]) + Lambda$Cov[,,j])
   }) %>% 
     Reduce(f = "+") %>% 
     {. + diag(q)}
@@ -137,9 +137,30 @@ get_expectation_tau_minus <- function(current_A, current_B, h){
 get_update_VI_Delta <- function(Y, params, priors){
   p <- ncol(Y)
   q <- length(params$Delta$A)
+  A <- priors$Delta$A + 0.5 * p * (q + 1 - (1:q))
+  E_phi_L2 <- map_dbl(1:q, function(h){
+    E_phi_h <- params$Phi$A[, h] / params$Phi$B[, h]
+    E_L2 <- params$Lambda$M[h, ]^2 + params$Lambda$Cov[h, h, ]
+    sum(E_phi_h * E_L2)
+  })
+  new_B <- params$Delta$B
+  
+  new_B[1] <- .5 * sum(E_phi_L2 * cumprod(A / new_B) / (A[1] / new_B[1]))
+  for(k in 2:q){
+    E_delta_all <- cumprod(A / new_B)
+    E_delta_k <- (A[k] / new_B[k])
+    new_B[k] <- .5 * sum(E_phi_L2[k:q] * 
+                          E_delta_all[k:q] / E_delta_k )
+  }
+  list(A = A, B = priors$Delta$B + new_B)
+}
+
+get_update_VI_Delta_old <- function(Y, params, priors){
+  p <- ncol(Y)
+  q <- length(params$Delta$A)
   expectation_Lambda2_Phi <- map_dbl(1:q, function(h){
-    sum((params$Lambda$M[h, ]^2 + params$Lambda$Cov[h, h,]) * 
-          params$Phi$A[, h] / params$Phi$B[, h]) 
+    sum((params$Lambda$M[h, ]^2 + params$Lambda$Cov[h, h,]) *
+          params$Phi$A[, h] / params$Phi$B[, h])
   })
   new_A <- priors$Delta$A + 0.5 * p * (q + 1 - (1:q))
   new_B <- params$Delta$B
@@ -173,11 +194,12 @@ get_ELBO <- function(Y, params, priors){
   variational_entropy <- sum(apply(params$Lambda$Cov, 3, 
                                    get_entropy_normal)) + # Lambda
     sum(apply(params$Eta$Cov, 3, get_entropy_normal)) + # Eta
-    sum(map2_dbl(params$Sigma$A, params$Sigma$B, # Sigma 
+    sum(map2_dbl(params$Sigma$A, 
+                 params$Sigma$B, # Sigma 
                  .f = get_entropy_gamma)) + 
     sum(map2_dbl(params$Delta$A, params$Delta$B, # Delta 
                  .f = get_entropy_gamma)) + 
-    sum(map2_dbl(params$Phi$A, params$Phi$B, 
+    sum(map2_dbl(params$Phi$A, params$Phi$B, # Phi
                  .f = get_entropy_gamma))
   # Usefull expectations
   expectations_log_sigma <- get_log_expectation_gamma(params$Sigma$A, params$Sigma$B)
@@ -187,10 +209,24 @@ get_ELBO <- function(Y, params, priors){
   expectations_log_phi <- get_log_expectation_gamma(params$Phi$A, params$Phi$B)
   expectations_phi <- get_expectation_gamma(params$Phi$A, params$Phi$B)
   # Likelihood term
-  # We use the fact that B^{sigma_j} = b^{sigma_j} + .5(Y_j - eta \Lambda_j)'(Y_j - eta \Lambda_j)
+  # We use the fact that B^{sigma_j} = b^{sigma_j} + .5E[(Y_j - eta \Lambda_j)'(Y_j - eta \Lambda_j)]
   # Thus, the expectation of the last term is already computed
+  esp_eta_prime_eta <- apply(params$Eta$Cov, c(1, 2), sum) + # Sum of variances
+    Reduce(f = "+", 
+           x = map(1:n, function(i){
+             params$Eta$M[, i] %*% t(params$Eta$M[, i])
+           }))
+  get_E_quadr_form <- function(j){
+    term1 <- sum(0.5 * sum(Y[, j] * Y[, j]))
+    term2 <- -sum(Y[, j] * (t(params$Eta$M) %*% params$Lambda$M[,j])) # Eta$M is coded in q x n
+    term3 <- 0.5 * sum(esp_eta_prime_eta * 
+                         (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) 
+    term1 + term2 + term3
+  }
+  # likelihood_expectation <- sum(.5 * n * expectations_log_sigma -
+  #                                  expectations_sigma * (params$Sigma$B  - priors$Sigma$B))
   likelihood_expectation <- sum(.5 * n * expectations_log_sigma -
-                                  expectations_sigma * (params$Sigma$B  - priors$Sigma$B))
+                                  expectations_sigma * map_dbl(1:p, get_E_quadr_form))
   # Priors terms
   prior_sigma_expectation <- sum((priors$Sigma$A - 1) * expectations_log_sigma - 
                                    priors$Sigma$B * expectations_sigma)
@@ -246,8 +282,9 @@ get_CAVI <- function(data_, q, n_steps,
   
   # Propagation
   # progess_bar <- txtProgressBar(min = 0, max = n_steps)
+  current_ELBO <- get_ELBO(data_, params, priors)
   ELBOS <- data.frame(iteration = 0, 
-                      ELBO = get_ELBO(data_, params, priors))
+                      ELBO = current_ELBO)
   foo <- function(param_){
     print(paste("After ", param_))
     print(get_ELBO(data_, params, priors))
@@ -257,27 +294,47 @@ get_CAVI <- function(data_, q, n_steps,
     # Lambdas
     if(updates["Lambda"]){
       params$Lambda <- get_update_VI_Lambda(data_, params)
-      foo("Lambda")
+      new_ELBO <- get_ELBO(data_, params, priors)
+      if(new_ELBO < current_ELBO){
+        print("Problem at iteration", step_, "after updating Lambda")
+      }
+      current_ELBO <- new_ELBO
     }
     # Etas
     if(updates["Eta"]){
       params$Eta <- get_update_VI_Eta(data_, params)
-      foo("Eta")
+      new_ELBO <- get_ELBO(data_, params, priors)
+      if(new_ELBO < current_ELBO){
+        print("Problem at iteration", step_, "after updating Eta")
+      }
+      current_ELBO <- new_ELBO
     }
     # Sigma
     if(updates["Sigma"]){
       params$Sigma <- get_update_VI_Sigma(data_, params, priors)
-      foo("Sigma")
+      new_ELBO <- get_ELBO(data_, params, priors)
+      if(new_ELBO < current_ELBO){
+        print("Problem at iteration", step_, "after updating Sigma")
+      }
+      current_ELBO <- new_ELBO
     }
     # Phis
     if(updates["Phi"]){
       params$Phi <- get_update_VI_Phi(data_, params, priors)
-      foo("Phi")
+      new_ELBO <- get_ELBO(data_, params, priors)
+      if(new_ELBO < current_ELBO){
+        print("Problem at iteration", step_, "after updating Phi")
+      }
+      current_ELBO <- new_ELBO
     }
     if(updates["Delta"]){
       # deltas
       params$Delta <- get_update_VI_Delta(data_, params, priors)
-      foo("Delta")
+      new_ELBO <- get_ELBO(data_, params, priors)
+      if(new_ELBO < current_ELBO){
+        print(paste("Problem at iteration", step_, "after updating Delta"))
+      }
+      current_ELBO <- new_ELBO
     }
     if(n_steps){
       ELBOS <- bind_rows(ELBOS,

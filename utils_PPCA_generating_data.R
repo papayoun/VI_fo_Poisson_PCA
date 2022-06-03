@@ -11,7 +11,7 @@ library(mixtools)
 
 # Problem data ------------------------------------------------------------
 
-n <- 1000
+n <- 10
 p <- 5
 q <- 3
 
@@ -29,9 +29,11 @@ residus <- sapply(sigma2s_true, function(s2) rnorm(n, 0, sqrt(s2)))
 # Latent variables --------------------------------------------------------
 
 set.seed(1234)
-Eta_true <- matrix(rnorm(n * q), nrow = n, ncol = q) %>% 
-  scale(center = FALSE) %>% 
-  {. %*% svd(.)$v}
+Eta_true <- matrix(sample(-1:1, size = n * q, replace = TRUE),
+                   nrow = n, ncol = q) 
+# %>% 
+#   scale(center = FALSE) %>% 
+#   {. %*% svd(.)$v}
 
 # Loadings ----------------------------------------------------------------
 
