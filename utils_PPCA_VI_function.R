@@ -122,56 +122,26 @@ get_update_VI_Phi <- function(Y, params, priors){
 #   list(A = A, B = B)
 # }
 
-
-
-get_expectation_tau_minus <- function(current_A, current_B, h){
-  expectations_delta <- current_A / current_B
-  if(h == 1){
-    cumprod(c(1, expectations_delta[-1]))
-  }
-  else{
-    (cumprod(expectations_delta) / expectations_delta[h])[-c(1:(h - 1))]
-  }
-}
-
 get_update_VI_Delta <- function(Y, params, priors){
   p <- ncol(Y)
   q <- length(params$Delta$A)
-  A <- priors$Delta$A + 0.5 * p * (q + 1 - (1:q))
+  new_A <- priors$Delta$A + 0.5 * p * (q + 1 - (1:q))
   E_phi_L2 <- map_dbl(1:q, function(h){
     E_phi_h <- params$Phi$A[, h] / params$Phi$B[, h]
     E_L2 <- params$Lambda$M[h, ]^2 + params$Lambda$Cov[h, h, ]
     sum(E_phi_h * E_L2)
   })
   new_B <- params$Delta$B
-  
-  new_B[1] <- .5 * sum(E_phi_L2 * cumprod(A / new_B) / (A[1] / new_B[1]))
+  new_B[1] <- priors$Delta$B + .5 * sum(E_phi_L2 * cumprod(new_A / new_B) / (new_A[1] / new_B[1]))
   for(k in 2:q){
-    E_delta_all <- cumprod(A / new_B)
-    E_delta_k <- (A[k] / new_B[k])
-    new_B[k] <- .5 * sum(E_phi_L2[k:q] * 
-                          E_delta_all[k:q] / E_delta_k )
-  }
-  list(A = A, B = priors$Delta$B + new_B)
-}
-
-get_update_VI_Delta_old <- function(Y, params, priors){
-  p <- ncol(Y)
-  q <- length(params$Delta$A)
-  expectation_Lambda2_Phi <- map_dbl(1:q, function(h){
-    sum((params$Lambda$M[h, ]^2 + params$Lambda$Cov[h, h,]) *
-          params$Phi$A[, h] / params$Phi$B[, h])
-  })
-  new_A <- priors$Delta$A + 0.5 * p * (q + 1 - (1:q))
-  new_B <- params$Delta$B
-  new_B[1] <- priors$Delta$B + .5 * sum(get_expectation_tau_minus(new_A, new_B, 1) *
-                                          expectation_Lambda2_Phi)
-  for(h in 2:q){
-    new_B[h] <- priors$Delta$B + .5 * sum(get_expectation_tau_minus(new_A, new_B, h) *
-                                            expectation_Lambda2_Phi[-(1:(h - 1))])
+    E_delta_all <- cumprod(new_A / new_B)
+    E_delta_k <- (new_A[k] / new_B[k])
+    new_B[k] <- priors$Delta$B  + .5 * sum(E_phi_L2[k:q] * 
+                                             E_delta_all[k:q] / E_delta_k )
   }
   list(A = new_A, B = new_B)
 }
+
 
 get_entropy_normal <- function(Cov){
   0.5 * log(det(Cov))
@@ -223,8 +193,6 @@ get_ELBO <- function(Y, params, priors){
                          (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) 
     term1 + term2 + term3
   }
-  # likelihood_expectation <- sum(.5 * n * expectations_log_sigma -
-  #                                  expectations_sigma * (params$Sigma$B  - priors$Sigma$B))
   likelihood_expectation <- sum(.5 * n * expectations_log_sigma -
                                   expectations_sigma * map_dbl(1:p, get_E_quadr_form))
   # Priors terms
@@ -262,7 +230,8 @@ get_CAVI <- function(data_, q, n_steps,
                      priors = list(Sigma = list(A = 1, B = 3), 
                                    Phi = list(A = 3/2, B = 3/2),
                                    Delta= list(A = c(2, rep(3, q - 1)), 
-                                               B = 1))){
+                                               B = 1)),
+                     debug = FALSE){
   p <- ncol(data_); n <- nrow(data_)
   if(set_seed){
     set.seed(set_seed)
@@ -285,56 +254,61 @@ get_CAVI <- function(data_, q, n_steps,
   current_ELBO <- get_ELBO(data_, params, priors)
   ELBOS <- data.frame(iteration = 0, 
                       ELBO = current_ELBO)
-  foo <- function(param_){
-    print(paste("After ", param_))
-    print(get_ELBO(data_, params, priors))
-  }
-  foo("Init")
   for(step_ in 1:n_steps){
     # Lambdas
     if(updates["Lambda"]){
       params$Lambda <- get_update_VI_Lambda(data_, params)
-      new_ELBO <- get_ELBO(data_, params, priors)
-      if(new_ELBO < current_ELBO){
-        print("Problem at iteration", step_, "after updating Lambda")
+      if(debug){
+        new_ELBO <- get_ELBO(data_, params, priors)
+        if(new_ELBO < current_ELBO){
+          print("Problem at iteration", step_, "after updating Lambda")
+        }
+        current_ELBO <- new_ELBO
       }
-      current_ELBO <- new_ELBO
     }
     # Etas
     if(updates["Eta"]){
       params$Eta <- get_update_VI_Eta(data_, params)
       new_ELBO <- get_ELBO(data_, params, priors)
-      if(new_ELBO < current_ELBO){
-        print("Problem at iteration", step_, "after updating Eta")
+      if(debug){
+        if(new_ELBO < current_ELBO){
+          print("Problem at iteration", step_, "after updating Eta")
+        }
+        current_ELBO <- new_ELBO
       }
-      current_ELBO <- new_ELBO
     }
     # Sigma
     if(updates["Sigma"]){
       params$Sigma <- get_update_VI_Sigma(data_, params, priors)
-      new_ELBO <- get_ELBO(data_, params, priors)
-      if(new_ELBO < current_ELBO){
-        print("Problem at iteration", step_, "after updating Sigma")
+      if(debug){
+        new_ELBO <- get_ELBO(data_, params, priors)
+        if(new_ELBO < current_ELBO){
+          print("Problem at iteration", step_, "after updating Sigma")
+        }
+        current_ELBO <- new_ELBO
       }
-      current_ELBO <- new_ELBO
     }
     # Phis
     if(updates["Phi"]){
       params$Phi <- get_update_VI_Phi(data_, params, priors)
-      new_ELBO <- get_ELBO(data_, params, priors)
-      if(new_ELBO < current_ELBO){
-        print("Problem at iteration", step_, "after updating Phi")
+      if(debug){
+        new_ELBO <- get_ELBO(data_, params, priors)
+        if(new_ELBO < current_ELBO){
+          print("Problem at iteration", step_, "after updating Phi")
+        }
+        current_ELBO <- new_ELBO
       }
-      current_ELBO <- new_ELBO
     }
     if(updates["Delta"]){
       # deltas
       params$Delta <- get_update_VI_Delta(data_, params, priors)
-      new_ELBO <- get_ELBO(data_, params, priors)
-      if(new_ELBO < current_ELBO){
-        print(paste("Problem at iteration", step_, "after updating Delta"))
+      if(debug){
+        new_ELBO <- get_ELBO(data_, params, priors)
+        if(new_ELBO < current_ELBO){
+          print(paste("Problem at iteration", step_, "after updating Delta"))
+        }
+        current_ELBO <- new_ELBO
       }
-      current_ELBO <- new_ELBO
     }
     if(n_steps){
       ELBOS <- bind_rows(ELBOS,
