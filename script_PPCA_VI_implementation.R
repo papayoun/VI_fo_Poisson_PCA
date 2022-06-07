@@ -42,24 +42,24 @@ get_result <- function(seed, n_steps){
   
   result <- get_CAVI(data_ = Y, q = q, 
                      n_steps = n_steps, params = init_params,
-                     updates = c(Lambda = FALSE, Sigma = TRUE,
+                     updates = c(Lambda = TRUE, Sigma = TRUE,
                                  Eta = TRUE, Delta = TRUE, 
                                  Phi = TRUE),
                      priors = priors)
   result
 }
 
-all_results <- mclapply(1:8, get_result, n_steps = 50, mc.cores = 4)
+all_results <- mclapply(1:4, get_result, n_steps = 5000, mc.cores = 4)
 map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
-  filter(iteration > 9) %>% 
+  filter(iteration > 10) %>% 
   ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
   geom_line()
-map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
-  group_by(Replicate) %>% 
-  filter(iteration > 9)
 
-params <- result$params
-head(Eta_true)
+params_list <- map(all_results, "params")
+
+best <- params_list[[2]]
+t(best$Lambda$M)
+Lambda_true
 head(t(result$params$Eta$M))
 result$ELBOS %>% 
   ggplot() + 
