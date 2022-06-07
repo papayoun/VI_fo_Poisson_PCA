@@ -7,27 +7,28 @@ get_update_VI_Lambda <- function(Y, params){
   Sigma <- params$Sigma
   Phi <- params$Phi
   Delta <- params$Delta
-  mean_eta_prime_eta <- map(1:n, function(i){
-    Eta$Cov[,, i] + (Eta$M[, i] %*% t(Eta$M[, i]))
-  }) %>% 
-    Reduce(f = "+")
+  E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
+    Reduce(f = "+", 
+           x = map(1:n, function(i){
+             Eta$M[, i] %*% t(Eta$M[, i])
+           }))
   # Calcul des precisions
-  Cov <- map(1:p, function(j){
-    partial_precision <- Sigma$A[j] / Sigma$B[j] * mean_eta_prime_eta
-    precision <- partial_precision + 
+  V_Lambda <- lapply(1:p, function(j){
+    precision <- Sigma$A[j] / Sigma$B[j] * E_eta_prime_eta + 
       diag(Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B))
     variance <- solve(precision)
     return(variance)
   }) %>% 
     abind(along = 3) # Mise au format array
-  M <- sapply(1:p, function(j){
-    Sigma$A[j] / Sigma$B[j]  * Cov[,, j] %*% Eta$M %*% Y[, j]
+  M_Lambda <- sapply(1:p, function(j){
+    Sigma$A[j] / Sigma$B[j]  * V_Lambda[,, j] %*% Eta$M %*% Y[, j]
   })
-  list(M = M, Cov = Cov)
+  list(M = M_Lambda, Cov = V_Lambda)
 }
 
 
 get_update_VI_Eta <- function(Y, params){
+  # Useful quantities
   n <- nrow(Y)
   p <- ncol(Y)
   Lambda <- params$Lambda
@@ -35,21 +36,20 @@ get_update_VI_Eta <- function(Y, params){
   Phi <- params$Phi
   Delta <- params$Delta
   
-  # Calcul des precisions (la même pour tous les j!) 
-  precision <- map(1:p, function(j){
+  #First, get the common covariance matrix
+  common_cov <- lapply(1:p, function(j){
     Sigma$A[j] / Sigma$B[j] * (Lambda$M[,j] %*% t(Lambda$M[,j]) + Lambda$Cov[,,j])
   }) %>% 
     Reduce(f = "+") %>% 
-    {. + diag(q)}
-  
-  common_cov <- solve(precision)
-  
+    {. + diag(q)} %>% 
+    solve()
+  # The common matrix for all means
+  mean_matrix <- common_cov %*% Lambda$M %*% diag(Sigma$A/Sigma$B)
+  # The means
   M <- sapply(1:n, function(i){
-    common_cov %*% Lambda$M %*% diag(Sigma$A/Sigma$B) %*% Y[i, ] 
+    mean_matrix %*% Y[i, ] 
   })
-  
   Cov <- array(common_cov, dim = c(q, q, n))
-  
   list(M = M, Cov = Cov)
 }
 
@@ -61,19 +61,19 @@ get_update_VI_Sigma <- function(Y, params, priors){
   Phi <- params$Phi
   Delta <- params$Delta
   A <- rep(priors$Sigma$A + n / 2, p)
-  esp_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
+  E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
-           x = map(1:n, function(i){
+           x = lapply(1:n, function(i){
              Eta$M[, i] %*% t(Eta$M[, i])
            }))
-  get_Bj <- function(j){
+  get_B_sigma_j <- function(j){
     term1 <- sum(0.5 * sum(Y[, j] * Y[, j]))
     term2 <- -sum(Y[, j] * (t(Eta$M) %*% Lambda$M[,j])) # Eta$M is coded in q x n
-    term3 <- 0.5 * sum(esp_eta_prime_eta * 
+    term3 <- 0.5 * sum(E_eta_prime_eta * 
                          (Lambda$Cov[,, j] + Lambda$M[, j] %*% t(Lambda$M[, j]))) 
     term1 + term2 + term3
   }
-  B <- priors$Sigma$B + map_dbl(1:p, get_Bj)
+  B <- priors$Sigma$B + sapply(1:p, get_B_sigma_j)
   list(A = A, B = B)
 }
 
@@ -85,48 +85,19 @@ get_update_VI_Phi <- function(Y, params, priors){
   # le meme pour tous
   A <- matrix(priors$Phi$A + 0.5, p, q)
   
-  cumprodAoverB  = cumprod(Delta$A/Delta$B)
+  cumprod_Delta  = cumprod(Delta$A/Delta$B)
   B <- sapply(1:q, function(h){
     priors$Phi$B + 
-      .5 * (Lambda$M[h, ]^2 + Lambda$Cov[h, h, ]) * cumprod(Delta$A/Delta$B)[h]
+      .5 * (Lambda$M[h, ]^2 + Lambda$Cov[h, h, ]) * cumprod_Delta[h]
   })
   list(A = A, B = B)
 }
-
-# get_update_VI_Delta <- function(Y, params, priors){
-#   Lambda <- params$Lambda
-#   Eta <- params$Eta
-#   Phi <- params$Phi
-#   Delta <- params$Delta
-#   
-#   # Adevrait être initialisé une fois pour toutes
-#   A <- priors$Delta$A + 0.5 * p * (1 + q -(1:q))
-#   
-#   B <- Delta$B
-#   # Puis attention ce serait sans doute mieux une mise a jour séquentielle pour les B[h]
-#   # il faudra que A et B soient initialisés
-#   # quantités intermediares
-#   #Lambda2Phi[l] supprime la dépendance en j
-#   Lambda2Phi <- map_dbl(1:q, function(h){
-#     sum((Lambda$M[h, ]^2 + Lambda$Cov[h, h,]) * Phi$A[, h] / Phi$B[, h]) 
-#   })
-#   CoeffEnligne <- Lambda2Phi * cumprod(A / B) # Le 2e terme correspond au vecteur E[tau]
-#   CumSumCoeff <- cumsum(CoeffEnligne)
-#   CoeffEncolonne <- c((CumSumCoeff[q] - 0) / (A[1] / B[1]), # Pour le premier element
-#                       map_dbl(2:q, # Pour les suivants
-#                               function(h){
-#                                 (CumSumCoeff[q]-CumSumCoeff[h-1]) / (A[h] / B[h])
-#                               }))
-#   
-#   B <- priors$Delta$B + 0.5 * CoeffEncolonne
-#   list(A = A, B = B)
-# }
 
 get_update_VI_Delta <- function(Y, params, priors){
   p <- ncol(Y)
   q <- length(params$Delta$A)
   new_A <- priors$Delta$A + 0.5 * p * (q + 1 - (1:q))
-  E_phi_L2 <- map_dbl(1:q, function(h){
+  E_phi_L2 <- sapply(1:q, function(h){
     E_phi_h <- params$Phi$A[, h] / params$Phi$B[, h]
     E_L2 <- params$Lambda$M[h, ]^2 + params$Lambda$Cov[h, h, ]
     sum(E_phi_h * E_L2)
@@ -142,35 +113,14 @@ get_update_VI_Delta <- function(Y, params, priors){
   list(A = new_A, B = new_B)
 }
 
-
-get_entropy_normal <- function(Cov){
-  0.5 * log(det(Cov))
-}
-
-get_entropy_gamma <- function(A, B){
-  A - log(B) + lgamma(A) + (1 - A) * digamma(A)
-}
-
-get_expectation_gamma <- function(A, B){
-  A / B
-}
-
-get_log_expectation_gamma <- function(A, B){
-  digamma(A) -  log(B)
-}
-
 get_ELBO <- function(Y, params, priors){
   # Variational entropy term
   variational_entropy <- sum(apply(params$Lambda$Cov, 3, 
                                    get_entropy_normal)) + # Lambda
     sum(apply(params$Eta$Cov, 3, get_entropy_normal)) + # Eta
-    sum(map2_dbl(params$Sigma$A, 
-                 params$Sigma$B, # Sigma 
-                 .f = get_entropy_gamma)) + 
-    sum(map2_dbl(params$Delta$A, params$Delta$B, # Delta 
-                 .f = get_entropy_gamma)) + 
-    sum(map2_dbl(params$Phi$A, params$Phi$B, # Phi
-                 .f = get_entropy_gamma))
+    sum(get_entropy_gamma(params$Sigma$A, params$Sigma$B)) + # Sigma 
+    sum(get_entropy_gamma(params$Delta$A, params$Delta$B)) + # Delta 
+    sum(get_entropy_gamma(params$Phi$A, params$Phi$B))  # Phi
   # Usefull expectations
   expectations_log_sigma <- get_log_expectation_gamma(params$Sigma$A, params$Sigma$B)
   expectations_sigma <- get_expectation_gamma(params$Sigma$A, params$Sigma$B)
@@ -179,17 +129,15 @@ get_ELBO <- function(Y, params, priors){
   expectations_log_phi <- get_log_expectation_gamma(params$Phi$A, params$Phi$B)
   expectations_phi <- get_expectation_gamma(params$Phi$A, params$Phi$B)
   # Likelihood term
-  # We use the fact that B^{sigma_j} = b^{sigma_j} + .5E[(Y_j - eta \Lambda_j)'(Y_j - eta \Lambda_j)]
-  # Thus, the expectation of the last term is already computed
-  esp_eta_prime_eta <- apply(params$Eta$Cov, c(1, 2), sum) + # Sum of variances
+  E_eta_prime_eta <- apply(params$Eta$Cov, c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
-           x = map(1:n, function(i){
+           x = lapply(1:n, function(i){
              params$Eta$M[, i] %*% t(params$Eta$M[, i])
            }))
   get_E_quadr_form <- function(j){
     term1 <- sum(0.5 * sum(Y[, j] * Y[, j]))
     term2 <- -sum(Y[, j] * (t(params$Eta$M) %*% params$Lambda$M[,j])) # Eta$M is coded in q x n
-    term3 <- 0.5 * sum(esp_eta_prime_eta * 
+    term3 <- 0.5 * sum(E_eta_prime_eta * 
                          (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) 
     term1 + term2 + term3
   }
