@@ -10,3 +10,6 @@ example_*.pdf
 *.log
 *.synctex.gz
 
+# Generated data
+
+data_PPCA.txt
