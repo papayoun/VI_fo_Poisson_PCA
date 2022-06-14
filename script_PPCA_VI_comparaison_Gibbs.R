@@ -86,24 +86,32 @@ for(j in 1:p){result_VI$Lambda[j,1:q,1:n_samples]=
 t(mvtnorm::rmvnorm(n_samples,result_VI_coef$Lambda$M[1:q,j],
                    result_VI_coef$Lambda$Cov[1:q,1:q,j]))}
 ###########
-result=result_VI
-LL_t <- mclapply(1:n_samples, function(i){
-  result$Lambda[,,i] %*% t(result$Lambda[,,i]) 
+
+#prep result_VI
+LL_t_VI <- mclapply(1:n_samples, function(i){
+  result_VI$Lambda[,,i] %*% t(result_VI$Lambda[,,i]) 
 }) %>% 
   abind(along = 3)
+LL_t_hat_VI_df <- format_array(LL_t_VI, "LL_t") 
+LL_t_hat_VI_df<-LL_t_hat_VI_df %>% mutate(method="VI")
 
-LL_t_hat_df <- format_array(LL_t, "LL_t") 
+#prep result_gibbs
+LL_t_gibbs <- mclapply(1:n_samples, function(i){
+  result_gibbs$Lambda[,,i] %*% t(result_gibbs$Lambda[,,i]) 
+}) %>% 
+  abind(along = 3)
+LL_t_hat_gibbs_df <- format_array(LL_t_gibbs, "LL_t") 
+LL_t_hat_gibbs_df <-LL_t_hat_gibbs_df %>% mutate(method="Gibbs")
+#verité et les deux methode
 LL_t_true <- Lambda_true %*% t(Lambda_true)
-
-LL_t_hat_df %>% 
-  ggplot(aes(x = iteration, y = Estimate, color = Parameter)) +
-  geom_line()
+LL_t_hat_df <-LL_t_hat_gibbs_df %>% bind_rows(LL_t_hat_VI_df)
+# une densité par parametre
   ggplot(LL_t_hat_df) + 
-    aes(x = Estimate) +
+    aes(x = Estimate, color=method) +
     geom_density() +
     facet_wrap(~Parameter, nrow =  nrow(Lambda_true), labeller = label_parsed,
                scales = "free_y") +
     geom_vline(data = tibble(Parameter = unique(LL_t_hat_df$Parameter),
                              Truth = as.numeric(t(LL_t_true))),
                aes(xintercept = Truth),
-               color = "red")
+               color = "black")
