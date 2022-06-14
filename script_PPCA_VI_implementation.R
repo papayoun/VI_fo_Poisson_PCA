@@ -49,7 +49,7 @@ get_result <- function(seed, n_steps){
   result
 }
 
-all_results <- mclapply(1:4, get_result, n_steps = 5000, mc.cores = 4)
+all_results <- mclapply(1:4, get_result, n_steps = 100, mc.cores = 4)
 map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
   filter(iteration > 10) %>% 
   ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
@@ -60,9 +60,3 @@ params_list <- map(all_results, "params")
 best <- params_list[[2]]
 t(best$Lambda$M)
 Lambda_true
-head(t(result$params$Eta$M))
-result$ELBOS %>% 
-  ggplot() + 
-  aes(x = iteration, y = ELBO) + 
-  geom_line()
-any(diff(result$ELBOS$ELBO) < 0)
