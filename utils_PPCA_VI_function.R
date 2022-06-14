@@ -113,6 +113,22 @@ get_update_VI_Delta <- function(Y, params, priors){
   list(A = new_A, B = new_B)
 }
 
+get_entropy_normal <- function(Cov){
+  0.5 * log(det(Cov))
+}
+
+get_entropy_gamma <- function(A, B){
+  A - log(B) + lgamma(A) + (1 - A) * digamma(A)
+}
+
+get_expectation_gamma <- function(A, B){
+  A / B
+}
+
+get_log_expectation_gamma <- function(A, B){
+  digamma(A) -  log(B)
+}
+
 get_ELBO <- function(Y, params, priors){
   # Variational entropy term
   variational_entropy <- sum(apply(params$Lambda$Cov, 3, 
