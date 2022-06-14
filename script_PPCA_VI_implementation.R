@@ -18,7 +18,9 @@ source("utils_PPCA_VI_function.R")
 # VI parameters
 
 
-p <- ncol(Y); q <- ncol(Eta_true); n <- nrow(Y)
+p <- ncol(Y); q_true <- ncol(Eta_true); n <- nrow(Y)
+q<-7
+# on ne prend pas le "vrai" q!
 priors <- list(Sigma = list(A = 3, B = 2), 
                Phi = list(A = 3/2, B = 3/2),
                Delta= list(A = c(5, rep(2, q - 1)), 
@@ -49,7 +51,11 @@ get_result <- function(seed, n_steps){
   result
 }
 
-all_results <- mclapply(1:4, get_result, n_steps = 100, mc.cores = 4)
+all_results <- mclapply(1:4, get_result, 
+                        n_steps = 2000, 
+                        mc.cores = detectCores())
+
+
 map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
   filter(iteration > 10) %>% 
   ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
@@ -57,6 +63,7 @@ map_dfr(all_results, "ELBOS", .id = "Replicate") %>%
 
 params_list <- map(all_results, "params")
 
-best <- params_list[[2]]
+best <- params_list[[1]]
 t(best$Lambda$M)
 Lambda_true
+
