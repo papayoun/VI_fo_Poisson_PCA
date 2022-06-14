@@ -85,6 +85,18 @@ result_VI$Lambda<-array(0,dim = c(p,q,n_samples))
 for(j in 1:p){result_VI$Lambda[j,1:q,1:n_samples]=
 t(mvtnorm::rmvnorm(n_samples,result_VI_coef$Lambda$M[1:q,j],
                    result_VI_coef$Lambda$Cov[1:q,1:q,j]))}
+result_VI$Eta<-array(0,dim = c(n,q,n_samples))
+for(i in 1:n){result_VI$Lambda[i,1:q,1:n_samples]=
+  t(mvtnorm::rmvnorm(n_samples,result_VI_coef$Lambda$M[1:q,i],
+                     result_VI_coef$Lambda$Cov[1:q,1:q,i]))}
+result_VI$Sigma<-matrix(0,nr=p,nc=n_samples)
+for(s in 1:n_samples){result_VI$Sigma[1:p,s]=1/rgamma(p,result_VI_coef$Sigma$A[1:p],
+                             result_VI_coef$Sigma$B[1:p])}
+result_VI$deltas<-matrix(0,nr=q,nc=n_samples)
+for(s in 1:n_samples){result_VI$deltas[1:q,s]=rgamma(q,
+                                result_VI_coef$Delta$A[1:q],
+                                result_VI_coef$Delta$B[1:q])}
+
 ###########
 
 #prep result_VI
@@ -115,3 +127,40 @@ LL_t_hat_df <-LL_t_hat_gibbs_df %>% bind_rows(LL_t_hat_VI_df)
                              Truth = as.numeric(t(LL_t_true))),
                aes(xintercept = Truth),
                color = "black")
+  
+  Lambda_hat_gibbs_df <- format_array(result_gibbs$Lambda,
+                                "Lambda") %>% mutate(method="Gibbs")
+  Lambda_hat_VI_df <- format_array(result_VI$Lambda,
+                                      "Lambda") %>% mutate(method="VI")
+  Lambda_hat_df<-Lambda_hat_gibbs_df %>% bind_rows(Lambda_hat_VI_df)
+  Lambda_hat_df %>% 
+    filter((str_detect(Parameter, "-1]") | str_detect(Parameter, "-2]"))) %>% 
+    separate(Parameter, into = c("species", "feature"), sep = "-") %>% 
+    mutate(feature = paste0("feature_", str_remove(feature , "]")),
+           species = str_replace(species, "Lambda\\[", "species_")) %>%
+    pivot_wider(names_from = "feature", values_from = "Estimate") %>% 
+    ggplot(aes(x = feature_1, y = feature_2, color = species, size=method, shape=method)) +
+    geom_point() 
+  ########################Comparaison des sigma^2
+  Sigma_gibbs_df<- format_matrix(matrix_=result_gibbs$Sigma,
+                                 param_name="s",
+                                 suffix_ = "2") %>% 
+    mutate(method="Gibbs")
+  Sigma_VI_df<- format_matrix(matrix_=result_VI$Sigma,
+                              param_name="s",
+                              suffix_ = "2")%>% 
+    mutate(method="VI")
+  Sigma_df<-Sigma_VI_df %>% bind_rows(Sigma_gibbs_df)
+  Sigma_df %>% ggplot(aes(x=Parameter,y=Estimate,color=method))+
+    geom_boxplot()
+  ########################Comparaison des delta##########
+  Delta_gibbs_df<- format_matrix(matrix_=result_gibbs$deltas,
+                                 param_name="delta") %>% 
+    mutate(method="Gibbs")
+  Delta_VI_df<- format_matrix(matrix_=result_VI$deltas,
+                              param_name="delta")%>% 
+    mutate(method="VI")
+  Delta_df<-Delta_VI_df %>% bind_rows(Delta_gibbs_df)
+  Delta_df %>% ggplot(aes(x=Parameter,y=Estimate,color=method))+
+    geom_boxplot()
+  
