@@ -29,9 +29,11 @@ get_update_VI_Lambda <- function(Y, params){
 
 get_update_VI_Eta <- function(Y, params){
   # Useful quantities
+  # browser()
   n <- nrow(Y)
   p <- ncol(Y)
   Lambda <- params$Lambda
+  q <- nrow(Lambda$M)
   Sigma <- params$Sigma
   Phi <- params$Phi
   Delta <- params$Delta
@@ -79,6 +81,7 @@ get_update_VI_Sigma <- function(Y, params, priors){
 
 get_update_VI_Phi <- function(Y, params, priors){
   Lambda <- params$Lambda
+  q <- nrow(Lambda$M)
   Eta <- params$Eta
   Delta <- params$Delta
   
@@ -95,7 +98,7 @@ get_update_VI_Phi <- function(Y, params, priors){
 
 get_update_VI_Delta <- function(Y, params, priors){
   p <- ncol(Y)
-  q <- length(params$Delta$A)
+  q <- nrow(params$Lambda$M)
   new_A <- priors$Delta$A + 0.5 * p * (q + 1 - (1:q))
   E_phi_L2 <- sapply(1:q, function(h){
     E_phi_h <- params$Phi$A[, h] / params$Phi$B[, h]

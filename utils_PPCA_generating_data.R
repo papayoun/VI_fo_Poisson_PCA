@@ -13,7 +13,7 @@ library(mixtools)
 
 n <- 100
 p <- 10
-q <- 3
+q_true <- 3
 
 # Generating latent variables ---------------------------------------------
 
@@ -29,8 +29,8 @@ residus <- sapply(sigma2s_true, function(s2) rnorm(n, 0, sqrt(s2)))
 # Latent variables --------------------------------------------------------
 
 set.seed(1234)
-Eta_true <- matrix(sample(-1:1, size = n * q, replace = TRUE),
-                   nrow = n, ncol = q) 
+Eta_true <- matrix(sample(-1:1, size = n * q_true, replace = TRUE),
+                   nrow = n, ncol = q_true) 
 # %>% 
 #   scale(center = FALSE) %>% 
 #   {. %*% svd(.)$v}
@@ -38,12 +38,12 @@ Eta_true <- matrix(sample(-1:1, size = n * q, replace = TRUE),
 # Loadings ----------------------------------------------------------------
 
 set.seed(12345)
-Lambda_true <- matrix(sample(-1:1, size = p * q, replace = TRUE),
-                 nrow = p, ncol = q)
+Lambda_true <- matrix(sample(-1:1, size = p * q_true, replace = TRUE),
+                 nrow = p, ncol = q_true)
 
 # Observations
 
 Y <- Eta_true %*% t(Lambda_true) + residus
-rm(residus, q, n, p)
+rm(residus, q_true, n, p)
 write.table(Y, file = "data_PPCA.txt", sep = ";", col.names = FALSE,
             row.names = FALSE)
