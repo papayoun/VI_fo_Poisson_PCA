@@ -79,6 +79,23 @@ get_update_VI_Sigma <- function(Y, params, priors){
   list(A = A, B = B)
 }
 
+get_update_VI_Sigma_fixed <- function(Y, X, XprimeX, params, priors){
+  # Useful quantities
+  n <- nrow(Y)
+  p <- ncol(Y)
+  F_x <- ncol(X)
+  # Posterior variationel de A
+  update_without_X <- get_update_VI_Sigma(Y, params, priors)
+  A <- update_without_X$A + F_x * 0.5
+  get_updade_term_B_sigma_j <- function(j){
+    term1 <- 0.5 * sum(XprimeX * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
+    term2 <- -sum((Y[, j] -  t(Eta$M) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
+    term1 + term2
+  }
+  B <- update_without_X$B + map_dbl(1:p, get_updade_term_B_sigma_j)  
+  list(A = A, B = B)
+}
+
 get_update_VI_Phi <- function(Y, params, priors){
   Lambda <- params$Lambda
   q <- nrow(Lambda$M)
