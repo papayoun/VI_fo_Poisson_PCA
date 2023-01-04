@@ -14,7 +14,7 @@ library(mixtools)
 n <- 100
 p <- 10
 q_true <- 3
-qk <-2
+F_x <-2
 
 # Generating latent variables ---------------------------------------------
 
@@ -43,12 +43,12 @@ Lambda_true <- matrix(sample(-1:1, size = p * q_true, replace = TRUE),
                  nrow = p, ncol = q_true)
 
 # Fixed effects----------------------------------------------------------------
-X <- matrix(sample(seq(fr=-10, to=10,by=0.1), size = n * qk, replace = TRUE),
-                   nrow = n, ncol = qk)
-beta_true <- matrix(runif(n = p*qk),
-                      nrow = p, ncol = qk)*
+X <- matrix(sample(seq(fr=-10, to=10,by=0.1), size = n * F_x, replace = TRUE),
+                   nrow = n, ncol = F_x)
+beta_true <- matrix(runif(n = p*F_x),
+                      nrow = p, ncol = F_x)*
   sqrt(matrix(sigma2s_true,
-              nrow = p, ncol = qk))*10
+              nrow = p, ncol = F_x))*10
 beta_true=round(beta_true, dig=1)
 
 ###according to prior with c=100
@@ -56,7 +56,7 @@ beta_true=round(beta_true, dig=1)
 # Observations
 
 Y <- X %*% t(beta_true)+Eta_true %*% t(Lambda_true) + residus
-rm(residus, q_true, n, p,qk)
+rm(residus, q_true, n, p,F_x)
 write.table(Y, file = "data_PPCA.txt", sep = ";", col.names = FALSE,
             row.names = FALSE)
 write.table(X, file = "fixed_PPCA.txt", sep = ";", col.names = FALSE,
