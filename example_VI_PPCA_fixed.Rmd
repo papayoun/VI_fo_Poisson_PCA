@@ -1,0 +1,678 @@
+---
+title: "About Variational Bayes for PPCA data"
+author: "Eric PARENT & Pierre Gloaguen"
+date: "the 3rd of January 2023 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+  html_document:
+    code_folding: hide
+    df_print: paged
+    self_contained: yes
+    number_sections: yes
+    toc: yes
+    theme: journal
+    toc_float: yes
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE, cache = FALSE}
+
+# knitr::opts_chunk$set(
+# 	echo = TRUE,
+# 	message = FALSE,
+# 	warning = FALSE,
+# 	cache = FALSE
+# )
+knitr::opts_chunk$set(
+	eval = FALSE,
+	message = FALSE,
+	warning = FALSE,
+	cache = FALSE,
+	include = TRUE
+)
+```
+
+# R codes and librairies {-}
+
+All `R` codes can be unfolded, for instance, unfold the following chunk to see which libairies are used in this document:
+
+```{r librairies}
+rm(list=ls())
+library(tidyverse) # For data manipulation and visualization
+library(rjags)  # For MCMC sampling
+library(ggmcmc) # To format jags output
+library(extraDistr) # For the non standart t distribution
+```
+
+
+# A not-so-simple shrinkage PPCA model
+
+Bhattacharya and Dunson consider the following linear normal model with a gamma process to shrink the variances of the columns of the latent matrix $\lambda$. Relying on this setting, we include a fixed effect (due to $f=1:qk$ forcing conditions from known explanatary variates with intensity $X_{f,i}$ on site $i$ interveining with coefficient $\beta_{j,f}$ onto species $j=1:p$) in addition to the random ones (governed by the unknown sparse loading matrix $\Lambda$):
+\begin{align*}
+Y_i &
+\overset{ind.}{\sim} \mathcal{N}_p(\beta X_i+\Lambda\eta_i, \Sigma), &
+1\leq i \leq n 
+\\
+\Sigma &= 
+\text{diag}(\sigma_j^{2}), &
+1\leq j \leq p 
+\\
+\sigma_j^{-2}|(a_{\sigma},b_{\sigma}) &
+\sim \Gamma(a_{\sigma},b_{\sigma}) &
+1\leq j \leq p
+\\
+\Lambda_{jh} &
+\sim \mathcal{N}_{q}(0,\,\phi_{jh}^{-1}\tau_{h}^{-1}), &
+1\leq j \leq p, 1 \leq h \leq {q}
+\\
+\phi_{jh} &
+\sim \Gamma(\frac{\nu}{2},\frac{\nu}{2}), &
+1\leq j \leq p, 1 \leq h \leq {q}\\
+\tau_{h} &
+= \prod_{l=1}^h \delta_l &
+1\leq h \leq q
+\\ 
+\delta_1 &
+\sim \Gamma(a_1,1) &
+\\
+\delta_h &
+\sim \Gamma(a_2,1) &
+\forall l \geq 2
+\end{align*}
+
+For computational convenience, we suggest to consider the following independent scaling prior for $\beta$:
+
+\begin{align*}
+\beta_{j,f} & \sim \mathcal{N}(0,c_f \times \sigma^2_j) &
+1\leq j \leq p ,
+1\leq f \leq qk
+\end{align*}
+
+with $c_f$ a supposedly known scaling constant.
+
+Recall that -- up to constant terms-- the logdensity of such a Normal multivariate distribution is:
+$$\log[Y|\Lambda,\Sigma,\beta] = -\frac{n}{2}\left(\log\vert C\vert +\text{Tr}(C^{-1}\hat{S}_{\tilde{Y}})\right)$$
+with
+
+$$ C= \Lambda\Lambda'+\Sigma\\
+\hat{S}_{\tilde{Y}}=\frac{1}{n}\sum_{i=1}^n (Y_i-\beta X_i)'(Y_i-\beta X_i)$$
+
+In the case $q<<p$, because $\Sigma$ is diagonal, it is easier to compute the inverse of the variance-covariance matrix by $$C^{-1}=\Sigma^{-1}-\Sigma^{-1}\Lambda(I+ \Lambda' \Sigma^{-1}\Lambda)^{-1}\Lambda'\Sigma^{-1}$$
+
+
+Some example data are generated in the following R code chunk.
+
+```{r generation}
+source("utils_PPCA_generating_data_fixed.R") # For true values
+Y <- read.table("data_PPCA.txt", sep = ";") %>%
+  as.matrix()
+X <- read.table("fixed_PPCA.txt", sep = ";") %>%
+  as.matrix()
+```
+
+In the code, $Y$ is a known $n\times p$ matrix, $X$ is a known $n\times q_k$ matrix while the unknown $\Lambda$ will be a $p \times q$ matrix, $\beta$ will be a $p \times q_k$ matrix and $\eta$ a $n\times q$ matrix.
+
+# Variational approach
+
+## Variational family
+
+We denote $Z$ the unknown with components $(\tau,\phi,\eta,\Lambda,\Sigma, \beta)$ and choose an independent family $q(Z) = \left(\prod_u q_{z_u}(Z_u) \right)$ to approximate $[Z|Y]$ such that :
+\begin{align*}
+\delta_h &
+\sim q_{\delta_h}(\cdot)= \mathcal{G}(A^{\delta}_h,B^{\delta}_h), &
+1\leq h \leq q 
+\\
+\phi_{jh} &
+\sim q_{\phi_{jh}}(\cdot)= \mathcal{G}(A^{\phi}_{jh},B^{\phi}_{jh}),  &
+1\leq j \leq p, 1\leq h \leq q
+\\
+\sigma^{-2}_{j} &
+\sim q_{\sigma^{-2}_{j}}(\cdot) = \mathcal{G}(A^{\sigma}_j,B^{\sigma}_j), &
+1\leq j \leq p 
+\\
+\eta_i &
+\sim q_{\eta_i}(\cdot)= \mathcal{N}(M_{\eta_i}, V^{\eta_i}), & 
+1\leq i \leq n
+\\
+\Lambda_j &
+\sim q_{\Lambda_j }(\cdot)= \mathcal{N}(M_{\lambda_j},V^{\Lambda_j}), &
+1\leq j \leq p 
+\\
+\beta_j &
+\sim q_{\beta_j }(\cdot)= \mathcal{N}(M_{\beta_j},V^{\beta_j}), &
+1\leq j \leq p, 
+\end{align*}
+where $\eta_i$ denotes the $i$-th row of yhe $n\times q$ matrix $\eta$,  $\Lambda_j$ denotes the $j$-th row of the $p\times q$ matrix $\Lambda$,and $\beta_j$ denotes the $j$-th row of the $p\times qk$ matrix $\beta$. In the following, all vectors are treated as column vectors.
+
+## Evidence lower bound
+
+To update parameters, we rely on the minimisation of the Kullback Liebler divergence
+$KL= \mathbb{E}_q\left[\log\frac{q(Z)}{[Z|Y]}\right]$.
+Equivalently we want to maximize the ELBO
+
+$$\text{ELBO}= \mathbb{E}_q\left[\log[Y,\tau,\phi,\eta,\Lambda,\sigma^{-2},\beta]\right]-\mathbb{E}_q\left[\log q(\tau,\phi,\eta,\Lambda,\sigma^{-2},\beta)\right]$$
+
+Due to conditionnal independence the criterion can decomposed as 
+
+\begin{align*}
+\text{ELBO}=&\mathbb{E}_q\left[\log\left([Y|\eta,\Lambda,\Sigma,\beta]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\beta| \Sigma]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\Sigma]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\eta]\right) \right]\\
+& + \mathbb{E}_q\left[\log\left([\Lambda|\delta,\phi]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\phi]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\delta]\right)\right]\\
+& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta, \beta)\right]
+\end{align*}
+
+## Terms to integrate
+
+Up to constant terms:
+\begin{align*}
+\log[Y|\Lambda,\Sigma,\eta,\beta]  &
+= \frac{n}{2}\sum_{j = 1}^p \log \sigma^{-2}_j - \frac{1}{2}\sum_{j = 1}^p \sigma^{-2}_j\left(Y^{j} - \eta \Lambda_j-X\beta_j\right)^T\left(Y^{j} - \eta \Lambda_j-X\beta_j\right)
+\\
+&= -\frac{n}{2}\left(\log\vert \Sigma^{-1}\vert +\text{Tr}(\Sigma^{-1}\hat{S}_{Y,\eta,\Lambda})\right),
+\end{align*}
+with
+
+$$ \hat{S}_{Y,\eta,\Lambda}=\frac{1}{n}\sum_{i=1}^n (Y_i-\Lambda\eta_i'-\beta X_i')(Y'_i-\eta_i\Lambda'- X_i\beta')\\
+= \frac{1}{n} (Y'-\eta\Lambda'-X\beta')(Y-\Lambda\eta'-\beta X').$$
+
+
+Continuing (still up to constant terms), we have for $\eta$:
+$$\log[\eta] = -\frac{1}{2}\sum_{i = 1}^n \eta_i^T\eta_i = -\frac{1}{2}\text{Tr}\left(\eta'\eta\right).$$
+Due to prior normal assuptions for $\beta$ : 
+$$\log\left([\beta|\Sigma]\right)= 0.5\times q_k\sum_j^p log(\sigma_j^{-2}) -0.5\times p\sum_f^{q_k} log(c_f)\\-0.5 \sum_{j,f}^{p,q_k} c_f^{-1} \sigma_j^{-2}\beta_{jf}^2$$
+Returning to vectors ($\beta_j$ is the $j$th row of matrix $\beta$):
+
+$$\log\left([\beta_j|\Sigma]\right)= 0.5\times q_k \times log(\sigma_j^{-2}) -0.5\times \sigma_j^{-2} \times Tr(diag(c_f^{-1})\beta_j \beta_j^T)$$
+
+Since $\Sigma$ is diagonal:
+
+$$\log[\Sigma^{-1}] = \sum_{j=1}^p\left((a_\sigma -1)\log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)$$
+
+Due to normal assumptions for $\Lambda_j$
+
+$$\log\left([\Lambda_{j}|\tau_{h},\phi_{j,h}]\right)= \frac{1}{2}\sum_{h = 1}^q \left(\log \phi_{j,h} + \sum_{\ell = 1}^h\log \delta_\ell\right) - \frac{1}{2}\text{Tr}\left(\text{diag}\left(\phi_{j,h}\prod_{\ell = 1}^h\delta_\ell\right)\Lambda_{j}\Lambda_{j}^T \right).$$
+Remains the terms with the prior for $\phi_{j,h}\;(1\leq j \leq p, 1\leq h \leq q)$:
+
+$$\log[\phi_{jh}] = \left(\frac{\nu}{ 2} - 1\right)\log(\phi_{j,h}) -\frac{\nu}{ 2}\phi_{jh},$$
+and $\delta_h\; (1\leq h \leq q)$
+
+$$
+\log[\delta_{h}] = \left\lbrace 
+\begin{array}{lr}
+(a_1 -1)\log(\delta_{1}) -b_{1} \delta_{1} & \text{ if } h = 1,\\
+(a_2 -1)\log(\delta_{2}) -b_{2} \delta_{2} & \text{ else.}
+\end{array}
+\right.
+$$
+
+
+<!-- Wrapping up all the previous log density terms -->
+
+
+<!-- \begin{align*} -->
+<!-- \text{ELBO}=& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]\\ -->
+<!-- & +\mathbb{E}_q\left[\frac{n}{2}\left(\sum_{j=1}^p \log\sigma_j^{-2} \right)-0.5\sum_{i=1}^n tr\left(\Sigma^{-1} (Y_i-\Lambda\eta_i')(Y'_i-\eta_i\Lambda')\right)\right]\\ -->
+<!-- & + \mathbb{E}_q\left[\sum_{j=1}^p\left((a_\sigma -1)log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)\right]\\ -->
+<!-- & + \mathbb{E}_q\left[\frac{1}{2}tr(\eta'\eta) \right]\\ -->
+<!-- & + \sum_{j=1,h=1}^{p,q}\mathbb{E}_q\left[0.5log(\phi_{jh})-0.5\Lambda_{jh}^2\phi_{jh}\prod_{k=1}^h \delta_k+0.5\sum_{k=1}^h log(\delta_k) \right]\\ -->
+<!-- & + \mathbb{E}_q\left[(\frac{1}{ 2} \gamma -1)log(\phi_{jh}) -\frac{\gamma}{ 2}\phi_{jh}\right]\\ -->
+<!-- & + \mathbb{E}_q\left[(a_1 -1)log(\delta_{1}) - \delta_{1}\right]\\ -->
+<!-- & + \mathbb{E}_q\left[(a_2 -1)log(\delta_{2}) - \delta_{2}\right]\\ -->
+<!-- & + \cdots\\ -->
+<!-- & + \mathbb{E}_q\left[(a_2 -1)log(\delta_{q}) - \delta_{q}\right] -->
+<!-- \end{align*} -->
+
+
+<!-- Note that in all cases, expectations are  analytically available. -->
+
+## Updates for the coordinate ascent algorithm
+
+In our context, we want to maximize the ELBO with respect to 
+$$\theta = \left\lbrace \left(M^{\beta_j}, V^{\beta_j}\right)_{1\leq j \leq p}, \left(M^{\Lambda_j}, V^{\Lambda_j}\right)_{1\leq j \leq p}, \left(M^{\eta_i}, V^{\eta_i}\right)_{1\leq i \leq n}, \left(A^{\sigma_j}, B^{\sigma_j}\right)_{1\leq j \leq p}, \left(A^{\phi_{j,h}}, B^{\phi_{j,h}}\right)_{1\leq j \leq p,1\leq h \leq q}, \left(A^{\delta_h}, B^{\delta_h}\right)_{1\leq h \leq q} \right\rbrace.$$
+A convenient way to maximize the ELBO in the context of conjugate mean field family is to proceed iteratively via a coordinate ascent algorithm.
+
+Starting from an initial guess $\theta^{(0)}$, we build a sequence $\left(\theta^{(k)}\right)_{k\geq 0}$ using the following procedure:
+For any unknown component $Z_u$, the variational parameters are updated by identifying the distribution given by $\mathbb{E}{q_{-u}}\left[f(Z_u,Z_{-u})\right]$, where $Z_{-u}$ denotes all the hidden random variables except $Z_u$, $\mathbb{E}_{q_{-u}}$ denotes the expectation with respect to these random variables, and $f(Z_u,Z_{-u})$ denotes all the terms in the ELBO that depend on $Z_u$ (and potentially $Z_{-u}$). 
+
+Let's illustrate this on the random variable $\sigma^{-2}_j$:
+
+### Updates for $\sigma^{-2}_j$
+
+ **TO BE CONTINUED**
+
+In the ELBO, we see that
+$$
+f_{\sigma^{-2}_j}(Z_{\sigma^{-2}_j}, Z_{-\sigma^{-2}_j}) = (a_\sigma -1)\log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2} + \frac{n}{2} \log \sigma^{-2}_j - \frac{1}{2} \sigma^{-2}_j\left(Y^{j} - \eta \Lambda_j\right)^T\left(Y^{j} - \eta \Lambda_j\right)
+$$
+
+Hence, 
+$$
+\mathbb{E}_{q_{-\sigma^{-2}_j}}[f_{\sigma^{-2}_j}(Z_{\sigma^{-2}_j}, Z_{-\sigma^{-2}_j})] = \left(a_\sigma + \frac{n}{2} - 1\right)\log \sigma^{-2}_j - \left(b_{\sigma} + \frac{1}{2}\mathbb{E}_{q_{\eta,\Lambda_j}}\left[\left(Y^{j} - \eta \Lambda_j\right)^T\left(Y^{j} - \eta \Lambda_j\right)\right] \right)\sigma^{-2}_j + \text{Cst}.
+$$
+Therefore, one can immediatly recognize the log p.d.f. of a Gamma distribution whose parameters are given by:
+
+* $A^{\sigma_j}= a_\sigma+\frac{n}{2}$; 
+* $B^{\sigma_j}_j= b_\sigma + \frac{1}{2}\mathbb{E}_{q_{\eta,\Lambda_j}}\left[\left(Y^{j} - \eta \Lambda_j\right)^T\left(Y^{j} - \eta \Lambda_j\right)\right]$. 
+
+It remains to compute the expectation. First, note that we have:
+$$\mathbb{E}\left[ \left(Y^{j} - \eta \Lambda_j\right)^T\left(Y^{j} - \eta \Lambda_j\right) \right] = (Y^{j})^TY^{j} - 2 (Y^{j})^T\mathbb{E}[\eta] \mathbb{E}[\Lambda_j] + \text{Tr}\left(\mathbb{E}[\eta^T\eta]\mathbb{E}\left[\Lambda_j \Lambda_j^T\right] \right).$$
+
+Now, use the fact that (denoting this time $\eta_i$ the $i$-th row of $\eta$):
+$$\mathbb{E}[\eta^T\eta] = \sum_{i = 1}^n\mathbb{E}\left[\eta_i\eta_i^T\right] = \sum_{i = 1}^n\left(\mathbb{E}\left[\eta_i\right]\mathbb{E}\left[\eta_i\right]^T + \mathbb{V}\left[\eta_i\right]\right).$$
+Suppose we are at iteration $k$ of the algorithm, and therefore that out current guess is $\theta^{(k)}$., we then have that:
+\begin{align*}
+A^{\sigma_j} &
+= a_\sigma+\frac{n}{2}
+\\
+B^{\sigma_j} &
+= b_\sigma + \frac{1}{2}\left[(Y^{j})^TY^{j} - 2 (Y^{j})^TM^\eta M^{\Lambda_j} + \text{Tr}\left( \left(M^{\eta_i}\left(M^{\eta_i} \right)^T + V^{\eta_i}\right) \times \left(M^{\Lambda_j}\left(M^{\Lambda_j}\right)^T + V^{\Lambda_j}\right) \right)\right],
+\end{align*}
+where all the parameters are the one at the current iteration (we omit the dependance on $(k)$), and $M^\eta$ is the matrix stacking row-wise all the $M^{\eta_i}$.
+
+**Remark on the computation** Note that the computation requires to compute the trace of a matrix product. 
+A computational trick here to avoid potentially big matrix product is to notice that when the 2 involved matrices are symmetric (which is the case here), the trace of the matrix product is equal to the sum of all the elements of the matrix given by the element-wise product (also called the Hadamard product). Formally, for symmetric $n\times n$ matrices  $A$ and $B$:
+$$\text{Tr}\left({AB}\right) = \sum_{i , j = 1}^n (A\odot B)_{i,j}$$
+
+This trick can lead to critical reduction in computation time (a factor 20 for a 100$\times$ 100 matrix, in `R`).
+
+This is implemented in `R` within  the function 
+
+```{r get_update_VI_Sigma}
+get_update_VI_Sigma <- function(Y, params, priors){
+  # Useful quantities
+  n <- nrow(Y)
+  p <- ncol(Y)
+  Lambda <- params$Lambda
+  Eta <- params$Eta
+  Phi <- params$Phi
+  Delta <- params$Delta
+  # Update A (which could actually be done once for all)
+  A <- rep(priors$Sigma$A + n / 2, p)
+  # First, compute E[eta'eta]
+  E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
+    Reduce(f = "+", 
+           x = map(1:n, function(i){
+             Eta$M[, i] %*% t(Eta$M[, i])
+           }))
+  # Then, the function to get B^{\sigma_j}
+  get_B_sigma_j <- function(j){
+    term1 <- sum(0.5 * sum(Y[, j] * Y[, j]))
+    term2 <- -sum(Y[, j] * (t(Eta$M) %*% Lambda$M[,j])) # Eta$M is coded in q x n
+    # For the last term, we use the element wise product
+    term3 <- 0.5 * sum(E_eta_prime_eta * 
+                         (Lambda$Cov[,, j] + Lambda$M[, j] %*% t(Lambda$M[, j]))) 
+    term1 + term2 + term3
+  }
+  B <- priors$Sigma$B + map_dbl(1:p, get_B_sigma_j)
+  list(A = A, B = B)
+}
+```
+
+### Updates for $\Lambda_j$
+
+Each term $\Lambda_j$ appears through a quadratic form:
+
+$$-\frac{1}{2}\left(\Lambda_j^{T}\left(\sigma^{-2}_j\eta^{T}\eta + \text{diag}\left(\phi_{j,h}\prod_{\ell = 1}^h\delta_\ell\right)_{1\leq h \leq q}\right)\Lambda_j - 2 \Lambda_j^{T}\sigma^{-2}_j\eta^{T}Y^j\right).$$
+Therefore, the CAVI algorithm leads to a Gaussian update, given by:
+
+\begin{align*}
+V^{\Lambda_j}&=\left(\frac{A^{\sigma_j}}{B^{\sigma_j}}\sum_{i=1}^n \left(V^{\eta_i}+{M^{\eta_i}}{M^{\eta_i}}'\right)+\text{diag}\left(\frac{A^{\phi_{jh}}}{B^{\phi_{jh}}} \prod_{\ell=1}^h\frac{A^{\delta_{\ell}}}{B^{\delta_{\ell}}} \right) \right)^{-1}\\
+M^{\Lambda_j} &= \frac{A^{\sigma_j}}{B^{\sigma_j}} V^{\Lambda_j}  \left(M^{\eta}\right)^TY^{j}.
+\end{align*}
+
+The `get_update_VI_Lambda` function implements these equations 
+```{r get_update_VI_Lambda}
+get_update_VI_Lambda <- function(Y, params){
+  # Useful quantities
+  n <- nrow(Y)
+  p <- ncol(Y)
+  Eta <- params$Eta
+  Sigma <- params$Sigma
+  Phi <- params$Phi
+  Delta <- params$Delta
+  # First, compute E[eta'eta]
+  E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
+    Reduce(f = "+", 
+           x = map(1:n, function(i){
+             Eta$M[, i] %*% t(Eta$M[, i])
+           }))
+  # Computes V^\Lambda
+  V_Lambda <- map(1:p, function(j){
+    precision <- Sigma$A[j] / Sigma$B[j] * E_eta_prime_eta + 
+      diag(Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B))
+    variance <- solve(precision)
+    return(variance)
+  }) %>% 
+    abind(along = 3) # Binding in an array of size q x q x p
+  M_Lambda <- sapply(1:p, function(j){
+    Sigma$A[j] / Sigma$B[j]  * V_Lambda[,, j] %*% Eta$M %*% Y[, j]
+  })
+  list(M = M_Lambda, Cov = V_Lambda)
+}
+```
+
+### Updates for $\eta_i$
+
+Each term $\eta_i$ appears through a quadratic form:
+
+$$-\frac{1}{2}\left(\eta_i^{T}\left(\Lambda^{T}\Sigma\Lambda + I_q\right)\eta_i - 2 \eta_i^{T}\Lambda^T\Sigma Y_i\right),$$
+where $\Sigma = \text{diag}(\sigma^{-2}_j)_{1\leq j \leq p}$. Then, denote $W$ the $p\times q$ matrix $W = \Sigma^{1/2}\Lambda$. One can notice that the $j$-th row of $W$ is given by $W_j = \sigma_j\Lambda_j$. Then, note that $\Lambda^{T}\Sigma\Lambda = W^TW = \sum_{j = 1}^p W_jW_j^T = \sum_{j = 1}^p\sigma^{-2}_j \Lambda_j\Lambda_j^T$.
+
+Therefore, the CAVI algorithm leads to a Gaussian update, given by:
+
+\begin{align*}
+V^{\eta_i}&
+= \sum_{j = 1}^p \frac{A^{\sigma_j}}{B^{\sigma_j}} \left(V^{\Lambda_j} + M^{\Lambda_j}\left( M^{\Lambda_j}\right)^T\right)\\
+M^{\eta_i} &= V^{\eta_i}\left(M^{\Lambda}\right)^T\text{diag}\left(
+\frac{A^{\sigma_j}}{B^{\sigma_j}}
+\right)_{1\leq j \leq p}Y_i
+\end{align*}
+
+```{r get_update_VI_Eta}
+get_update_VI_Eta <- function(Y, params){
+  # Useful quantities
+  n <- nrow(Y)
+  p <- ncol(Y)
+  Lambda <- params$Lambda
+  Sigma <- params$Sigma
+  Phi <- params$Phi
+  Delta <- params$Delta
+  
+  #First, get the common covariance matrix
+  common_cov <- lapply(1:p, function(j){
+    Sigma$A[j] / Sigma$B[j] * (Lambda$M[,j] %*% t(Lambda$M[,j]) + Lambda$Cov[,,j])
+  }) %>% 
+    Reduce(f = "+") %>% 
+    {. + diag(q)} %>% 
+    solve()
+  # The common matrix for all means
+  mean_matrix <- common_cov %*% Lambda$M %*% diag(Sigma$A/Sigma$B)
+  # The means
+  M <- sapply(1:n, function(i){
+    mean_matrix %*% Y[i, ] 
+  })
+  Cov <- array(common_cov, dim = c(q, q, n))
+  list(M = M, Cov = Cov)
+}
+```
+
+### Updates for $\phi_{j,h}$
+
+The terms implying $\phi_{j,h}$ are the following:
+
+$$ \left(\frac{\nu}{2} + \frac{1}{2} - 1\right)\log \phi_{j,h} - \left(\frac{\nu}{2} + \Lambda_{j,h}^2\prod_{\ell = 1}^h \delta_\ell\right)\phi_{j,h}.$$
+Therefore, the updates of the Gamma distribution parameters are given by:
+
+\begin{align*}
+A^{\phi_{j, h}} &= \frac{\nu}{2}+\frac{1}{2}\\ 
+B^{\phi_{j, h}} & =\frac{\nu}{2}+\frac{1}{2}\left(\left(M^{\Lambda_{j,h}}\right)^2 + V^{\Lambda_j}_{h,h}\right) \prod_{\ell = 1}^h \frac{A^{\delta_{\ell}}}{B^{\delta_{\ell}}}.
+\end{align*}
+
+The corresponding `R` function is implemented.
+
+```{r get_update_VI_Phi}
+get_update_VI_Phi <- function(Y, params, priors){
+  Lambda <- params$Lambda
+  Eta <- params$Eta
+  Delta <- params$Delta
+  
+  # le meme pour tous
+  A <- matrix(priors$Phi$A + 0.5, p, q)
+  
+  cumprod_Delta  = cumprod(Delta$A/Delta$B)
+  B <- sapply(1:q, function(h){
+    priors$Phi$B + 
+      .5 * (Lambda$M[h, ]^2 + Lambda$Cov[h, h, ]) * cumprod_Delta[h]
+  })
+  list(A = A, B = B)
+}
+```
+
+### Update for $\delta_h$
+
+The tricky part is that information about $\delta_h$ is supported in the last (from $h$ to $q$) columns of $\Lambda$. Writing things down and recognizing a Gamma distribution, we have:
+
+\begin{align*}
+A^{\delta_h} & = \left\lbrace 
+\begin{array}{lr}
+a_1+\frac{pq}{2} & \text{ if } h = 1\\
+a_2 + \frac{p(q + 1 - h)}{2} & \text{ if } h > 1
+\end{array} \right.\\
+B^{\delta_h} &= 1 + \frac{1}{2}\sum_{\ell = h}^q\left(\left(\prod_{s = 1, s\neq h}^\ell\frac{A^{\delta_s}}{B^{\delta_s}}\right)\left(\sum_{j = 1}^p\left(\left(M^{\Lambda_{j, \ell}}\right)^2 + V^{\Lambda_j}_{\ell, \ell}\right)\frac{A^{\phi_{j,\ell}}}{B^{\phi_{j,\ell}}}\right)\right)
+\end{align*}
+
+```{r get_update_VI_Delta}
+get_update_VI_Delta <- function(Y, params, priors){
+  p <- ncol(Y)
+  q <- length(params$Delta$A)
+  new_A <- priors$Delta$A + 0.5 * p * (q + 1 - (1:q))
+  E_phi_L2 <- sapply(1:q, function(h){
+    E_phi_h <- params$Phi$A[, h] / params$Phi$B[, h]
+    E_L2 <- params$Lambda$M[h, ]^2 + params$Lambda$Cov[h, h, ]
+    sum(E_phi_h * E_L2)
+  })
+  new_B <- params$Delta$B
+  new_B[1] <- priors$Delta$B + .5 * sum(E_phi_L2 * cumprod(new_A / new_B) / (new_A[1] / new_B[1]))
+  for(k in 2:q){
+    E_delta_all <- cumprod(new_A / new_B)
+    E_delta_k <- (new_A[k] / new_B[k])
+    new_B[k] <- priors$Delta$B  + .5 * sum(E_phi_L2[k:q] * 
+                                             E_delta_all[k:q] / E_delta_k )
+  }
+  list(A = new_A, B = new_B)
+}
+```
+
+## Computing the ELBO
+
+The ELBO can be easily computed, as all the involved expectations are explicit. 
+
+We can check the evolution of the ELBO across iterations. To compute the ELBO, one needs to recall that
+
+ * the entropy of a Normal ($M,V$) distribution is equal, up to a constant, to $\frac{\log\vert V \vert}{2}$;
+ 
+ * the entropy of a Gamma ($A, B$) distribution is $A - \log B + \log\Gamma(A)+(1-A) \psi(A)$ with $\psi(\cdot)$ being the  digamma function;
+ 
+```{r}
+get_entropy_normal <- function(Cov){
+  0.5 * log(det(Cov))
+}
+
+get_entropy_gamma <- function(A, B){
+  A - log(B) + lgamma(A) + (1 - A) * digamma(A)
+}
+
+get_expectation_gamma <- function(A, B){
+  A / B
+}
+
+get_log_expectation_gamma <- function(A, B){
+  digamma(A) -  log(B)
+}
+
+get_ELBO <- function(Y, params, priors){
+  # Variational entropy term
+  variational_entropy <- sum(apply(params$Lambda$Cov, 3, 
+                                   get_entropy_normal)) + # Lambda
+    sum(apply(params$Eta$Cov, 3, get_entropy_normal)) + # Eta
+    sum(get_entropy_gamma(params$Sigma$A, params$Sigma$B)) + # Sigma 
+    sum(get_entropy_gamma(params$Delta$A, params$Delta$B)) + # Delta 
+    sum(get_entropy_gamma(params$Phi$A, params$Phi$B))  # Phi
+  # Usefull expectations
+  expectations_log_sigma <- get_log_expectation_gamma(params$Sigma$A, params$Sigma$B)
+  expectations_sigma <- get_expectation_gamma(params$Sigma$A, params$Sigma$B)
+  expectations_log_delta <- get_log_expectation_gamma(params$Delta$A, params$Delta$B)
+  expectations_delta <- get_expectation_gamma(params$Delta$A, params$Delta$B)
+  expectations_log_phi <- get_log_expectation_gamma(params$Phi$A, params$Phi$B)
+  expectations_phi <- get_expectation_gamma(params$Phi$A, params$Phi$B)
+  # Likelihood term
+  E_eta_prime_eta <- apply(params$Eta$Cov, c(1, 2), sum) + # Sum of variances
+    Reduce(f = "+", 
+           x = map(1:n, function(i){
+             params$Eta$M[, i] %*% t(params$Eta$M[, i])
+           }))
+  get_E_quadr_form <- function(j){
+    term1 <- sum(0.5 * sum(Y[, j] * Y[, j]))
+    term2 <- -sum(Y[, j] * (t(params$Eta$M) %*% params$Lambda$M[,j])) # Eta$M is coded in q x n
+    term3 <- 0.5 * sum(E_eta_prime_eta * 
+                         (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) 
+    term1 + term2 + term3
+  }
+  likelihood_expectation <- sum(.5 * n * expectations_log_sigma -
+                                  expectations_sigma * map_dbl(1:p, get_E_quadr_form))
+  # Priors terms
+  prior_sigma_expectation <- sum((priors$Sigma$A - 1) * expectations_log_sigma - 
+                                   priors$Sigma$B * expectations_sigma)
+  prior_phi_expectation <- sum((priors$Phi$A - 1) * expectations_log_phi - 
+                                 priors$Phi$B * expectations_phi)
+  prior_delta_expectation <- sum((priors$Delta$A - 1) * expectations_log_delta - 
+                                   priors$Delta$B * expectations_delta)
+  prior_eta_expectation <- -0.5 * sum(map_dbl(1:n, function(i){
+    sum(params$Eta$M[,i]^2 + diag(params$Eta$Cov[,, i]))
+  }))
+  prior_lambda_expectation <- 0.5 * p * sum(cumsum(expectations_log_delta)) +
+    0.5 * sum(expectations_log_phi) - 
+    0.5 * sum(map_dbl(1:p, function(j){
+      sum(cumprod(expectations_delta) * diag(expectations_phi[j, ]) * 
+            (diag(params$Lambda$Cov[,, j]) + params$Lambda$M[, j]^2))
+    }))
+  ELBO <- variational_entropy +
+    likelihood_expectation +
+    prior_delta_expectation +
+    prior_eta_expectation +
+    prior_lambda_expectation +
+    prior_sigma_expectation +
+    prior_phi_expectation
+  return(ELBO)
+}
+```
+
+Therefore, the implementation is now straight forward:
+
+```{r get_CAVI}
+get_CAVI <- function(data_, # Y
+                     q, # q 
+                     n_steps, # Number of steps 
+                     params, # initial parameters
+                     priors = list(Sigma = list(A = 1, B = 3), 
+                                   Phi = list(A = 3/2, B = 3/2),
+                                   Delta= list(A = c(2, rep(3, q - 1)), 
+                                               B = 1))){
+  # Propagation
+  # progess_bar <- txtProgressBar(min = 0, max = n_steps)
+  current_ELBO <- get_ELBO(data_, params, priors)
+  ELBOS <- data.frame(iteration = 0, 
+                      ELBO = current_ELBO)
+  for(step_ in 1:n_steps){
+      params$Lambda <- get_update_VI_Lambda(data_, params)
+    # Etas
+      params$Eta <- get_update_VI_Eta(data_, params)
+    # Sigma
+      params$Sigma <- get_update_VI_Sigma(data_, params, priors)
+    # Phis
+      params$Phi <- get_update_VI_Phi(data_, params, priors)
+      # deltas
+      params$Delta <- get_update_VI_Delta(data_, params, priors)
+      ELBOS <- bind_rows(ELBOS,
+                         data.frame(iteration = step_,
+                                    ELBO = get_ELBO(data_, params, priors)))
+  }
+  return(list(ELBOS = ELBOS, params = params))
+}
+```
+
+
+# Comparaison with MCMC inference
+
+Relying on Jags, we can get MCMC samples from the posterior distribution of the unknows.
+
+```{r modelString}
+modelString = "
+model{
+#a1 <- 2
+#a2 <- 3
+a[1] ~ dgamma(2,1)T(2,)
+a[2] ~ dgamma(2,1)T(3,)
+deminu <- 3/2
+a_sigma <- 0.1
+b_sigma <- 0.1
+
+#shrinkage prior
+for( h in 2:q){delta[h] ~ dgamma(a[2],1)}
+              delta[1] ~ dgamma(a[1],1)
+for( h in 1:q){ tau[h] <- prod(delta[1:h])} 
+for( j in 1:p){
+               for( h in 1:q){
+                              phi[j,h] ~ dgamma(deminu,deminu)
+                              precilambda[j,h] <- phi[j,h]*tau[h]
+                              lambda[j,h]~ dnorm(0,precilambda[j,h])
+                              }
+               }
+# N(0,1) prior for eta
+for(i in 1:n){
+              for (h in 1:q){
+                      eta[i,h] ~ dnorm(0,1)
+                            }
+}
+muY <- eta %*% t(lambda)
+# finally Y
+for(j in 1:p){ preciE[j] ~ dgamma(a_sigma,b_sigma)
+              for (i in 1:n){
+                      Y[i,j] ~ dnorm(muY[i,j],preciE[j])
+                            }
+}
+
+}"
+```
+
+
+```{r jags_inference, eval = FALSE}
+data_for_JAGS <- list(
+  n = dim(Y)[1],
+  p = dim(Y)[2],
+  q = 6,
+  Y = Y
+)
+n.adapt = 1000
+burnin = 1000
+n.iter = burnin * 2
+thin = 1
+jm <- jags.model(
+  file = textConnection(modelString),
+  data = data_for_JAGS,
+  n.chains = 3 ,
+  n.adapt = n.adapt
+)
+update(jm, burnin)
+jsamples <- coda.samples(
+  model = jm,
+  variable.names = c("tau","a"),
+  n.iter = n.iter,
+  thin = thin
+)
+```
+
+
+We transform the MCMC coda file into a regular tibble to visualize posterior pdfs and variational ones.
+
+```{r MCMCvisualization}
+MCMC_results <- ggs(jsamples)
+ggs_traceplot(MCMC_results)
+ggs_density(MCMC_results %>%
+              filter(Parameter %in% c("a[1]","a[2]")))
+ggs_density(MCMC_results,family=c("tau"))
+ggs_caterpillar(MCMC_results,family = "tau") +
+  scale_x_continuous(trans = "log10")
+```
+
+We can now visualize the estimated posterior distributions for all parameters:
+
+
