@@ -55,7 +55,7 @@ get_update_VI_Eta <- function(Y, params){
   list(M = M, Cov = Cov)
 }
 
-get_update_VI_Sigma <- function(Y, params, priors){
+get_update_VI_Sigma_without_fixed_effects <- function(Y, params, priors){
   n <- nrow(Y)
   p <- ncol(Y)
   Lambda <- params$Lambda
@@ -79,24 +79,50 @@ get_update_VI_Sigma <- function(Y, params, priors){
   list(A = A, B = B)
 }
 
-get_update_VI_Sigma_fixed <- function(Y, X, XprimeX, params, priors){
+get_update_VI_Sigma <- function(Y, params, priors,
+                                      X = 0, XprimeX = 0){
   # Useful quantities
   n <- nrow(Y)
   p <- ncol(Y)
   F_x <- ncol(X)
+  Lambda <- params$Lambda
+  Eta <- params$Eta
+  Beta <- params$Beta
   # Posterior variationel de A
-  update_without_X <- get_update_VI_Sigma(Y, params, priors)
-  A <- update_without_X$A + F_x * 0.5
-  get_updade_term_B_sigma_j <- function(j){
-    term1 <- 0.5 * sum(XprimeX * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
-    term2 <- -sum((Y[, j] -  t(Eta$M) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
-    term1 + term2
+  update_without_X <- get_update_VI_Sigma_without_fixed_effects(Y, params, priors)
+  if(all(X == 0)){ # Case when no covariates
+    return(list(A = update_without_X$A, B = update_without_X$B))
   }
-  B <- update_without_X$B + map_dbl(1:p, get_updade_term_B_sigma_j)  
-  list(A = A, B = B)
+  else{
+    A <- update_without_X$A + F_x * 0.5
+    get_updade_term_B_sigma_j <- function(j){
+      term1 <- 0.5 * sum((XprimeX + priors$Beta$C) * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
+      term2 <- -sum((Y[, j] -  t(Eta$M) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
+      term1 + term2
+    }
+    B <- update_without_X$B + map_dbl(1:p, get_updade_term_B_sigma_j) 
+  }
+  return(list(A = A, B = B))
 }
 
-get_update_VI_Phi <- function(Y, params, priors){
+get_update_VI_Beta <- function(Y, params, priors, X, XprimeX){
+  n <- nrow(Y)
+  p <- ncol(Y)
+  Sigma <- params$Sigma
+  # Calcul des variances
+  V_Beta <- lapply(1:p, function(j){
+    precision <- Sigma$A[j] / Sigma$B[j] * (XprimeX + priors$Beta$C)
+    variance <- solve(precision)
+    return(variance)
+  }) %>% 
+    abind(along = 3) # Mise au format array
+  M_Beta <- sapply(1:p, function(j){
+    Sigma$A[j] / Sigma$B[j]  * V_Beta[,, j] %*% t(X) %*% (Y[, j] - t(params$Eta$M) %*% params$Lambda$M[, j])
+  })
+  list(M = M_Beta, Cov = V_Beta)
+}
+
+get_update_VI_Phi <- function(params, priors){
   Lambda <- params$Lambda
   q <- nrow(Lambda$M)
   Eta <- params$Eta
@@ -113,8 +139,8 @@ get_update_VI_Phi <- function(Y, params, priors){
   list(A = A, B = B)
 }
 
-get_update_VI_Delta <- function(Y, params, priors){
-  p <- ncol(Y)
+get_update_VI_Delta <- function(params, priors){
+  p <- ncol(params$Lambda$M)
   q <- nrow(params$Lambda$M)
   new_A <- priors$Delta$A + 0.5 * p * (q + 1 - (1:q))
   E_phi_L2 <- sapply(1:q, function(h){
@@ -207,22 +233,34 @@ get_ELBO <- function(Y, params, priors){
 
 
 get_CAVI <- function(data_, q, n_steps, 
+                     X = NULL, 
                      set_seed = FALSE,
                      params = NULL,
                      updates = c(Lambda = TRUE, Sigma = TRUE,
-                                 Eta = TRUE, Delta = TRUE, Phi = TRUE),
+                                 Eta = TRUE, Delta = TRUE, Phi = TRUE, 
+                                 Beta = TRUE),
                      priors = list(Sigma = list(A = 1, B = 3), 
                                    Phi = list(A = 3/2, B = 3/2),
                                    Delta= list(A = c(2, rep(3, q - 1)), 
                                                B = 1)),
                      debug = FALSE){
-  p <- ncol(data_); n <- nrow(data_)
+  p <- ncol(data_); n <- nrow(data_); 
+  if(is.null(X)){
+    updates["Beta"] <- FALSE
+    X <- matrix(0, nrow = nrow(data_), ncol = 1)
+  }
+  F_x <- ncol(X)
+  XprimeX <- t(X) %*% X
   if(set_seed){
     set.seed(set_seed)
   }
   if(is.null(params)){
     params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
                                  Cov = array(diag(1, q), dim = c(q, q, p))),
+                   Beta = list(M = matrix(rnorm(F_x * p),
+                                          nrow = F_x, ncol = p),
+                               Cov = array(diag(1, F_x), 
+                                           dim = c(F_x, F_x, p))),
                    Eta = list(M = matrix(rnorm(q * n), q, n),
                               Cov = array(diag(1, q), dim = c(q, q, n))),
                    Sigma = list(A = runif(p, 1, 3),
@@ -238,10 +276,12 @@ get_CAVI <- function(data_, q, n_steps,
   current_ELBO <- get_ELBO(data_, params, priors)
   ELBOS <- data.frame(iteration = 0, 
                       ELBO = current_ELBO)
+  print(X)
+  print(params$Beta$M)
   for(step_ in 1:n_steps){
     # Lambdas
     if(updates["Lambda"]){
-      params$Lambda <- get_update_VI_Lambda(data_, params)
+      params$Lambda <- get_update_VI_Lambda(data_ - X %*% params$Beta$M, params)
       if(debug){
         new_ELBO <- get_ELBO(data_, params, priors)
         if(new_ELBO < current_ELBO){
@@ -252,9 +292,9 @@ get_CAVI <- function(data_, q, n_steps,
     }
     # Etas
     if(updates["Eta"]){
-      params$Eta <- get_update_VI_Eta(data_, params)
-      new_ELBO <- get_ELBO(data_, params, priors)
+      params$Eta <- get_update_VI_Eta(data_ - X %*% params$Beta$M, params)
       if(debug){
+        new_ELBO <- get_ELBO(data_, params, priors)
         if(new_ELBO < current_ELBO){
           print("Problem at iteration", step_, "after updating Eta")
         }
@@ -263,7 +303,8 @@ get_CAVI <- function(data_, q, n_steps,
     }
     # Sigma
     if(updates["Sigma"]){
-      params$Sigma <- get_update_VI_Sigma(data_, params, priors)
+      params$Sigma <- get_update_VI_Sigma(data_, params, priors,
+                                          X = X, XprimeX = XprimeX)
       if(debug){
         new_ELBO <- get_ELBO(data_, params, priors)
         if(new_ELBO < current_ELBO){
@@ -272,9 +313,20 @@ get_CAVI <- function(data_, q, n_steps,
         current_ELBO <- new_ELBO
       }
     }
+    if(updates["Beta"]){
+      params$Beta <- get_update_VI_Beta(Y = data_, params, priors, 
+                                        X = X, XprimeX = XprimeX)
+      if(debug){
+        new_ELBO <- get_ELBO(data_, params, priors)
+        if(new_ELBO < current_ELBO){
+          print("Problem at iteration", step_, "after updating Beta")
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
     # Phis
     if(updates["Phi"]){
-      params$Phi <- get_update_VI_Phi(data_, params, priors)
+      params$Phi <- get_update_VI_Phi(params, priors)
       if(debug){
         new_ELBO <- get_ELBO(data_, params, priors)
         if(new_ELBO < current_ELBO){
@@ -285,7 +337,7 @@ get_CAVI <- function(data_, q, n_steps,
     }
     if(updates["Delta"]){
       # deltas
-      params$Delta <- get_update_VI_Delta(data_, params, priors)
+      params$Delta <- get_update_VI_Delta(params, priors)
       if(debug){
         new_ELBO <- get_ELBO(data_, params, priors)
         if(new_ELBO < current_ELBO){
@@ -294,11 +346,11 @@ get_CAVI <- function(data_, q, n_steps,
         current_ELBO <- new_ELBO
       }
     }
-    if(n_steps){
-      ELBOS <- bind_rows(ELBOS,
-                         data.frame(iteration = step_,
-                                    ELBO = get_ELBO(data_, params, priors)))
-    }
+    # if(n_steps){
+    #   ELBOS <- bind_rows(ELBOS,
+    #                      data.frame(iteration = step_,
+    #                                 ELBO = get_ELBO(data_, params, priors)))
+    # }
   }
   return(list(ELBOS = ELBOS, params = params))
 }
