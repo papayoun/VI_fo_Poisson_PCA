@@ -53,9 +53,9 @@ get_result <- function(seed, n_steps){
   result
 }
 
-all_results <- mclapply(1:16, get_result, 
-                        n_steps = 2000, 
-                        mc.cores = detectCores())
+all_results <- mclapply(1:10, get_result, 
+                        n_steps = 1000, 
+                        mc.cores = detectCores()-2)
 best_index <- map_dbl(all_results, 
                       function(res) 
                         res$ELBOS[nrow(res$ELBOS), "ELBO"]) %>% 
