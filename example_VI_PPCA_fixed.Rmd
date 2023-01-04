@@ -1,6 +1,6 @@
 ---
 title: "About Variational Bayes for PPCA data"
-author: "Eric PARENT & Pierre Gloaguen"
+author: "Eric PARENT & Achille Thin & Pierre Gloaguen"
 date: "the 3rd of January 2023 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
 output:
   pdf_document:
@@ -51,7 +51,7 @@ library(extraDistr) # For the non standart t distribution
 
 # A not-so-simple shrinkage PPCA model
 
-Bhattacharya and Dunson consider the following linear normal model with a gamma process to shrink the variances of the columns of the latent matrix $\lambda$. Relying on this setting, we include a fixed effect (due to $f=1:qk$ forcing conditions from known explanatary variates with intensity $X_{f,i}$ on site $i$ interveining with coefficient $\beta_{j,f}$ onto species $j=1:p$) in addition to the random ones (governed by the unknown sparse loading matrix $\Lambda$):
+Bhattacharya and Dunson consider the following linear normal model with a gamma process to shrink the variances of the columns of the latent matrix $\lambda$. Relying on this setting, we include a fixed effect (due to $f=1:F$ forcing conditions from known explanatary variates with intensity $X_{f,i}$ on site $i$ interveining with coefficient $\beta_{j,f}$ onto species $j=1:p$) in addition to the random ones (governed by the unknown sparse loading matrix $\Lambda$):
 \begin{align*}
 Y_i &
 \overset{ind.}{\sim} \mathcal{N}_p(\beta X_i+\Lambda\eta_i, \Sigma), &
@@ -89,7 +89,7 @@ For computational convenience, we suggest to consider the following independent 
 \begin{align*}
 \beta_{j,f} & \sim \mathcal{N}(0,c_f \times \sigma^2_j) &
 1\leq j \leq p ,
-1\leq f \leq qk
+1\leq f \leq F
 \end{align*}
 
 with $c_f$ a supposedly known scaling constant.
@@ -114,7 +114,7 @@ X <- read.table("fixed_PPCA.txt", sep = ";") %>%
   as.matrix()
 ```
 
-In the code, $Y$ is a known $n\times p$ matrix, $X$ is a known $n\times q_k$ matrix while the unknown $\Lambda$ will be a $p \times q$ matrix, $\beta$ will be a $p \times q_k$ matrix and $\eta$ a $n\times q$ matrix.
+In the code, $Y$ is a known $n\times p$ matrix, $X$ is a known $n\times F$ matrix while the unknown $\Lambda$ will be a $p \times q$ matrix, $\beta$ will be a $p \times F$ matrix and $\eta$ a $n\times q$ matrix.
 
 # Variational approach
 
@@ -146,7 +146,7 @@ We denote $Z$ the unknown with components $(\tau,\phi,\eta,\Lambda,\Sigma, \beta
 \sim q_{\beta_j }(\cdot)= \mathcal{N}(M_{\beta_j},V^{\beta_j}), &
 1\leq j \leq p, 
 \end{align*}
-where $\eta_i$ denotes the $i$-th row of yhe $n\times q$ matrix $\eta$,  $\Lambda_j$ denotes the $j$-th row of the $p\times q$ matrix $\Lambda$,and $\beta_j$ denotes the $j$-th row of the $p\times qk$ matrix $\beta$. In the following, all vectors are treated as column vectors.
+where $\eta_i$ denotes the $i$-th row of yhe $n\times q$ matrix $\eta$,  $\Lambda_j$ denotes the $j$-th row of the $p\times q$ matrix $\Lambda$,and $\beta_j$ denotes the $j$-th row of the $p\times F$ matrix $\beta$. In the following, all vectors are treated as column vectors.
 
 ## Evidence lower bound
 
@@ -187,10 +187,10 @@ $$ \hat{S}_{Y,\eta,\Lambda}=\frac{1}{n}\sum_{i=1}^n (Y_i-\Lambda\eta_i'-\beta X_
 Continuing (still up to constant terms), we have for $\eta$:
 $$\log[\eta] = -\frac{1}{2}\sum_{i = 1}^n \eta_i^T\eta_i = -\frac{1}{2}\text{Tr}\left(\eta'\eta\right).$$
 Due to prior normal assuptions for $\beta$ : 
-$$\log\left([\beta|\Sigma]\right)= 0.5\times q_k\sum_j^p log(\sigma_j^{-2}) -0.5\times p\sum_f^{q_k} log(c_f)\\-0.5 \sum_{j,f}^{p,q_k} c_f^{-1} \sigma_j^{-2}\beta_{jf}^2$$
+$$\log\left([\beta|\Sigma]\right)= 0.5\times F\sum_j^p log(\sigma_j^{-2}) -0.5\times p\sum_f^{F} log(c_f)\\-0.5 \sum_{j,f}^{p,F} c_f^{-1} \sigma_j^{-2}\beta_{jf}^2$$
 Returning to vectors ($\beta_j$ is the $j$th row of matrix $\beta$):
 
-$$\log\left([\beta_j|\Sigma]\right)= 0.5\times q_k \times log(\sigma_j^{-2}) -0.5\times \sigma_j^{-2} \times Tr(diag(c_f^{-1})\beta_j \beta_j^T)$$
+$$\log\left([\beta_j|\Sigma]\right)= 0.5\times F \times log(\sigma_j^{-2}) -0.5\times \sigma_j^{-2} \times Tr(diag(c_f^{-1})\beta_j \beta_j^T)$$
 
 Since $\Sigma$ is diagonal:
 
@@ -304,7 +304,7 @@ get_update_VI_Sigma <- function(Y, params, priors){
            }))
   # Then, the function to get B^{\sigma_j}
   get_B_sigma_j <- function(j){
-    term1 <- sum(0.5 * sum(Y[, j] * Y[, j]))
+    term1 <- 0.5 * sum(Y[, j] * Y[, j])
     term2 <- -sum(Y[, j] * (t(Eta$M) %*% Lambda$M[,j])) # Eta$M is coded in q x n
     # For the last term, we use the element wise product
     term3 <- 0.5 * sum(E_eta_prime_eta * 
@@ -315,6 +315,26 @@ get_update_VI_Sigma <- function(Y, params, priors){
   list(A = A, B = B)
 }
 ```
+
+```{r get_update_VI_sigma_fixed}
+get_update_VI_Sigma_fixed <- function(Y, X, XprimeX, params, priors){
+  # Useful quantities
+  n <- nrow(Y)
+  p <- ncol(Y)
+  F_x <- ncol(X)
+  # Posterior variationel de A
+  update_without_X <- get_update_VI_Sigma(Y, params, priors)
+  A <- update_without_X$A + F_x * 0.5
+  get_updade_term_B_sigma_j <- function(j){
+    term1 <- 0.5 * sum(XprimeX * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
+    term2 <- -sum((Y[, j] -  t(Eta$M) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
+    term1 + term2
+  }
+  B <- update_without_X$B + map_dbl(1:p, get_updade_term_B_sigma_j)  
+  list(A = A, B = B)
+}
+```
+
 
 ### Updates for $\Lambda_j$
 
