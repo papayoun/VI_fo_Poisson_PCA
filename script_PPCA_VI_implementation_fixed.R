@@ -13,6 +13,7 @@ Y <- read.table("data_PPCA.txt", sep = ";") %>%
 X <- read.table("fixed_PPCA.txt", sep = ";") %>%
   as.matrix()
 F_x <- ncol(X)
+XprimeX=t(X)%*%X
 
 # VI inference functions -----------------------------------------------------
 
@@ -30,7 +31,8 @@ priors <- list(Sigma = list(A = 3, B = 2),
                            B = 1),
                Beta = list(M = rep(0, F_x),
                            C = rep(0.01, F_x)))
-get_result <- function(Y, X, seed, n_steps){
+
+get_result <- function(Y, X=X, seed, n_steps=n_steps){
   set.seed(seed)
   if(is.null(X)){
     F_x = 1
@@ -63,20 +65,29 @@ get_result <- function(Y, X, seed, n_steps){
   result
 }
 
-all_results <- mclapply(1:4, get_result, 
-                        Y = Y, X = X,
-                        n_steps = 200, 
-                        mc.cores = detectCores())
+result=get_result(Y=Y, X=X, seed=1, n_steps=70)
 
+result$ELBOS
+result$params$Beta$M %>% t() %>% cbind(beta_true)
+
+1:4 %>%
+  map(~ get_result(Y=Y, X=X, seed=.x, n_steps=70)) -> 
+  all_results
+
+# mclapply ne marche pas????
+# all_results <- mclapply(1:4, get_result, 
+#                        Y = Y, X = X,
+#                        n_steps = 70, 
+#                        mc.cores = detectCores())
 
 map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
   filter(iteration > 10) %>% 
   ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
   geom_line()
 
-params_list <- map(all_results, "params")
-
-best <- params_list[[1]]
-t(best$Lambda$M)
-Lambda_true
+# params_list <- map(all_results, "params")
+# 
+# best <- params_list[[1]]
+# t(best$Lambda$M)
+# Lambda_true
 

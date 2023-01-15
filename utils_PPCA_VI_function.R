@@ -182,7 +182,11 @@ get_ELBO <- function(Y, params, priors){
     sum(apply(params$Eta$Cov, 3, get_entropy_normal)) + # Eta
     sum(get_entropy_gamma(params$Sigma$A, params$Sigma$B)) + # Sigma 
     sum(get_entropy_gamma(params$Delta$A, params$Delta$B)) + # Delta 
-    sum(get_entropy_gamma(params$Phi$A, params$Phi$B))  # Phi
+    sum(get_entropy_gamma(params$Phi$A, params$Phi$B)) # Phi
+  if(all(X != 0)){ # Case with covariates X with parameter beta
+    variational_entropy <- variational_entropy+
+      sum(apply(params$Beta$Cov, 3, get_entropy_normal))  # Lambda
+                  }
   # Usefull expectations
   expectations_log_sigma <- get_log_expectation_gamma(params$Sigma$A, params$Sigma$B)
   expectations_sigma <- get_expectation_gamma(params$Sigma$A, params$Sigma$B)
@@ -198,10 +202,20 @@ get_ELBO <- function(Y, params, priors){
            }))
   get_E_quadr_form <- function(j){
     term1 <- sum(0.5 * sum(Y[, j] * Y[, j]))
-    term2 <- -sum(Y[, j] * (t(params$Eta$M) %*% params$Lambda$M[,j])) # Eta$M is coded in q x n
+    term2 <- - sum(Y[, j] * (t(params$Eta$M) %*% params$Lambda$M[,j])) # Eta$M is coded in q x n
     term3 <- 0.5 * sum(E_eta_prime_eta * 
                          (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) 
-    term1 + term2 + term3
+    term2bis <-0
+    term3bis <-0
+    term4 <- 0
+    if(all(X != 0)){ # Case with covariates X with parameter beta
+      term2bis <- -sum(Y[, j] * (X %*% params$Beta$M[,j]) ) # Eta$M is coded in q x n
+      term3bis <- 0.5 * sum(XprimeX * 
+                           (params$Beta$Cov[,, j] + params$Beta$M[, j] %*% t(params$Beta$M[, j]))) 
+      term4 <- sum((X %*% params$Beta$M[,j])*t(params$Lambda$M[,j]%*%params$Eta$M))
+      }
+    
+    term1 + term2 + term3 +term2bis +term3bis+term4
   }
   likelihood_expectation <- sum(.5 * n * expectations_log_sigma -
                                   expectations_sigma * map_dbl(1:p, get_E_quadr_form))
@@ -221,13 +235,23 @@ get_ELBO <- function(Y, params, priors){
       sum(cumprod(expectations_delta) * diag(expectations_phi[j, ]) * 
             (diag(params$Lambda$Cov[,, j]) + params$Lambda$M[, j]^2))
     }))
+  # A retravailler XXXXXXXXXXXXXXXX C precision?ou Variance
+  prior_beta_expectation<-0
+  if(all(X != 0)){ 
+  prior_beta_expectation <- 0.5 * F_x * sum(expectations_log_sigma) -
+    0.5 * sum(map_dbl(1:p, function(j){
+      expectations_sigma[j] *sum(diag(priors$Beta$C) * 
+            (params$Beta$Cov[,, j] + diag(params$Beta$M[, j]^2)))
+    }))
+  }
   ELBO <- variational_entropy +
     likelihood_expectation +
     prior_delta_expectation +
     prior_eta_expectation +
     prior_lambda_expectation +
     prior_sigma_expectation +
-    prior_phi_expectation
+    prior_phi_expectation +
+    prior_beta_expectation
   return(ELBO)
 }
 
@@ -346,11 +370,11 @@ get_CAVI <- function(data_, q, n_steps,
         current_ELBO <- new_ELBO
       }
     }
-    # if(n_steps){
-    #   ELBOS <- bind_rows(ELBOS,
-    #                      data.frame(iteration = step_,
-    #                                 ELBO = get_ELBO(data_, params, priors)))
-    # }
+     if(n_steps){
+       ELBOS <- bind_rows(ELBOS,
+                          data.frame(iteration = step_,
+                                     ELBO = get_ELBO(data_, params, priors)))
+     }
   }
   return(list(ELBOS = ELBOS, params = params))
 }
