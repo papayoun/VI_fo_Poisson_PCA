@@ -80,7 +80,7 @@ get_update_VI_Sigma_without_fixed_effects <- function(Y, params, priors){
 }
 
 get_update_VI_Sigma <- function(Y, params, priors,
-                                      X = 0, XprimeX = 0){
+                                X = 0, XprimeX = 0){
   # Useful quantities
   n <- nrow(Y)
   p <- ncol(Y)
@@ -186,7 +186,7 @@ get_ELBO <- function(Y, params, priors){
   if(all(X != 0)){ # Case with covariates X with parameter beta
     variational_entropy <- variational_entropy+
       sum(apply(params$Beta$Cov, 3, get_entropy_normal))  # Lambda
-                  }
+  }
   # Usefull expectations
   expectations_log_sigma <- get_log_expectation_gamma(params$Sigma$A, params$Sigma$B)
   expectations_sigma <- get_expectation_gamma(params$Sigma$A, params$Sigma$B)
@@ -211,9 +211,9 @@ get_ELBO <- function(Y, params, priors){
     if(all(X != 0)){ # Case with covariates X with parameter beta
       term2bis <- -sum(Y[, j] * (X %*% params$Beta$M[,j]) ) # Eta$M is coded in q x n
       term3bis <- 0.5 * sum(XprimeX * 
-                           (params$Beta$Cov[,, j] + params$Beta$M[, j] %*% t(params$Beta$M[, j]))) 
+                              (params$Beta$Cov[,, j] + params$Beta$M[, j] %*% t(params$Beta$M[, j]))) 
       term4 <- sum((X %*% params$Beta$M[,j])*t(params$Lambda$M[,j]%*%params$Eta$M))
-      }
+    }
     
     term1 + term2 + term3 +term2bis +term3bis+term4
   }
@@ -238,11 +238,11 @@ get_ELBO <- function(Y, params, priors){
   # A retravailler XXXXXXXXXXXXXXXX C precision?ou Variance
   prior_beta_expectation<-0
   if(all(X != 0)){ 
-  prior_beta_expectation <- 0.5 * F_x * sum(expectations_log_sigma) -
-    0.5 * sum(map_dbl(1:p, function(j){
-      expectations_sigma[j] *sum(diag(priors$Beta$C) * 
-            (params$Beta$Cov[,, j] + diag(params$Beta$M[, j]^2)))
-    }))
+    prior_beta_expectation <- 0.5 * F_x * sum(expectations_log_sigma) -
+      0.5 * sum(map_dbl(1:p, function(j){
+        expectations_sigma[j] *sum(diag(priors$Beta$C) * 
+                                     (params$Beta$Cov[,, j] + diag(params$Beta$M[, j]^2)))
+      }))
   }
   ELBO <- variational_entropy +
     likelihood_expectation +
@@ -300,8 +300,8 @@ get_CAVI <- function(data_, q, n_steps,
   current_ELBO <- get_ELBO(data_, params, priors)
   ELBOS <- data.frame(iteration = 0, 
                       ELBO = current_ELBO)
-  print(X)
-  print(params$Beta$M)
+  # print(X)
+  # print(params$Beta$M)
   for(step_ in 1:n_steps){
     # Lambdas
     if(updates["Lambda"]){
@@ -370,11 +370,11 @@ get_CAVI <- function(data_, q, n_steps,
         current_ELBO <- new_ELBO
       }
     }
-     if(n_steps){
-       ELBOS <- bind_rows(ELBOS,
-                          data.frame(iteration = step_,
-                                     ELBO = get_ELBO(data_, params, priors)))
-     }
+    if(n_steps){
+      ELBOS <- bind_rows(ELBOS,
+                         data.frame(iteration = step_,
+                                    ELBO = get_ELBO(data_, params, priors)))
+    }
   }
   return(list(ELBOS = ELBOS, params = params))
 }
