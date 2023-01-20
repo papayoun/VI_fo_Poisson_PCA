@@ -1,6 +1,5 @@
 rm(list = ls())
 library(tidyverse)
-library(mixtools)
 library(abind) # To gather results together
 library(parallel) # For some parallel computations
 source("utils_Poisson_PPCA_generating_data.R") # For true values
@@ -13,7 +12,7 @@ Y <- read.table("data_Poisson_PPCA.txt", sep = ";") %>%
 X <- read.table("fixed_PPCA.txt", sep = ";") %>%
   as.matrix()
 F_x <- ncol(X)
-XprimeX=t(X)%*%X
+XprimeX = t(X) %*% X
 
 # VI inference functions -----------------------------------------------------
 
@@ -32,7 +31,7 @@ priors <- list(Sigma = list(A = 3, B = 2),
                Beta = list(M = rep(0, F_x),
                            C = rep(0.01, F_x)))
 
-get_result <- function(Y, X, seed, n_steps=n_steps){
+get_result <- function(Y, X, seed, n_steps=n_steps, debug = FALSE){
   set.seed(seed)
   if(is.null(X)){
     F_x = 1
@@ -63,12 +62,13 @@ get_result <- function(Y, X, seed, n_steps=n_steps){
                      updates = c(Lambda = TRUE, Sigma = TRUE,
                                  Eta = TRUE, Delta = TRUE, 
                                  Phi = TRUE, Beta = !is.null(X), Z = TRUE),
-                     priors = priors)
+                     priors = priors, debug = debug)
   result
 }
-
-result=get_result(Y=Y, X=X, seed=1, n_steps=30)
-
+head(Z)
+head(result$params$Z$M)
+result=get_result(Y=Y, X=X, seed=1, n_steps=50, debug = FALSE)
+result$ELBOS
 result$ELBOS
 all(diff(result$ELBOS[, 2]) > 0)
 result$params$Beta$M %>% t() %>% cbind(beta_true)
