@@ -32,7 +32,7 @@ priors <- list(Sigma = list(A = 3, B = 2),
                Beta = list(M = rep(0, F_x),
                            C = rep(0.01, F_x)))
 
-get_result <- function(Y, X=X, seed, n_steps=n_steps){
+get_result <- function(Y, X, seed, n_steps=n_steps){
   set.seed(seed)
   if(is.null(X)){
     F_x = 1
@@ -68,6 +68,7 @@ get_result <- function(Y, X=X, seed, n_steps=n_steps){
 result=get_result(Y=Y, X=X, seed=1, n_steps=70)
 
 result$ELBOS
+all(diff(result$ELBOS[, 2]) > 0)
 result$params$Beta$M %>% t() %>% cbind(beta_true)
 
 1:4 %>%
