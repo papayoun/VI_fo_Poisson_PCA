@@ -175,7 +175,7 @@ get_log_expectation_gamma <- function(A, B){
   digamma(A) -  log(B)
 }
 
-get_ELBO <- function(Y, params, priors){
+get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
   # Variational entropy term
   variational_entropy <- sum(apply(params$Lambda$Cov, 3, 
                                    get_entropy_normal)) + # Lambda
@@ -184,8 +184,8 @@ get_ELBO <- function(Y, params, priors){
     sum(get_entropy_gamma(params$Delta$A, params$Delta$B)) + # Delta 
     sum(get_entropy_gamma(params$Phi$A, params$Phi$B)) # Phi
   if(all(X != 0)){ # Case with covariates X with parameter beta
-    variational_entropy <- variational_entropy+
-      sum(apply(params$Beta$Cov, 3, get_entropy_normal))  # Lambda
+    variational_entropy <- variational_entropy +
+      sum(apply(params$Beta$Cov, 3, get_entropy_normal))  # Beta
   }
   # Usefull expectations
   expectations_log_sigma <- get_log_expectation_gamma(params$Sigma$A, params$Sigma$B)
@@ -205,8 +205,8 @@ get_ELBO <- function(Y, params, priors){
     term2 <- - sum(Y[, j] * (t(params$Eta$M) %*% params$Lambda$M[,j])) # Eta$M is coded in q x n
     term3 <- 0.5 * sum(E_eta_prime_eta * 
                          (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) 
-    term2bis <-0
-    term3bis <-0
+    term2bis <- 0
+    term3bis <- 0
     term4 <- 0
     if(all(X != 0)){ # Case with covariates X with parameter beta
       term2bis <- -sum(Y[, j] * (X %*% params$Beta$M[,j]) ) # Eta$M is coded in q x n
@@ -235,8 +235,7 @@ get_ELBO <- function(Y, params, priors){
       sum(cumprod(expectations_delta) * diag(expectations_phi[j, ]) * 
             (diag(params$Lambda$Cov[,, j]) + params$Lambda$M[, j]^2))
     }))
-  # A retravailler XXXXXXXXXXXXXXXX C precision?ou Variance
-  prior_beta_expectation<-0
+  prior_beta_expectation <- 0
   if(all(X != 0)){ 
     prior_beta_expectation <- 0.5 * F_x * sum(expectations_log_sigma) -
       0.5 * sum(map_dbl(1:p, function(j){
@@ -260,18 +259,21 @@ get_CAVI <- function(data_, q, n_steps,
                      X = NULL, 
                      set_seed = FALSE,
                      params = NULL,
+                     priors = NULL,
                      updates = c(Lambda = TRUE, Sigma = TRUE,
                                  Eta = TRUE, Delta = TRUE, Phi = TRUE, 
                                  Beta = TRUE),
-                     priors = list(Sigma = list(A = 1, B = 3), 
-                                   Phi = list(A = 3/2, B = 3/2),
-                                   Delta= list(A = c(2, rep(3, q - 1)), 
-                                               B = 1)),
-                     debug = FALSE){
+                     debug = FALSE,
+                     get_ELBO_freq = 1){
+  if(is.null(priors)){
+    stop("We are bayesian guys, please specify a prior")
+  }
   p <- ncol(data_); n <- nrow(data_); 
   if(is.null(X)){
     updates["Beta"] <- FALSE
     X <- matrix(0, nrow = nrow(data_), ncol = 1)
+    priors$Beta = list(M = rep(0, ncol(X)),
+                       C = rep(0.01, ncol(X)))
   }
   F_x <- ncol(X)
   XprimeX <- t(X) %*% X
@@ -297,7 +299,8 @@ get_CAVI <- function(data_, q, n_steps,
   
   # Propagation
   # progess_bar <- txtProgressBar(min = 0, max = n_steps)
-  current_ELBO <- get_ELBO(data_, params, priors)
+  current_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                           X = X, XprimeX = XprimeX)
   ELBOS <- data.frame(iteration = 0, 
                       ELBO = current_ELBO)
   # print(X)
@@ -307,7 +310,8 @@ get_CAVI <- function(data_, q, n_steps,
     if(updates["Lambda"]){
       params$Lambda <- get_update_VI_Lambda(data_ - X %*% params$Beta$M, params)
       if(debug){
-        new_ELBO <- get_ELBO(data_, params, priors)
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print("Problem at iteration", step_, "after updating Lambda")
         }
@@ -318,7 +322,8 @@ get_CAVI <- function(data_, q, n_steps,
     if(updates["Eta"]){
       params$Eta <- get_update_VI_Eta(data_ - X %*% params$Beta$M, params)
       if(debug){
-        new_ELBO <- get_ELBO(data_, params, priors)
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print("Problem at iteration", step_, "after updating Eta")
         }
@@ -330,7 +335,8 @@ get_CAVI <- function(data_, q, n_steps,
       params$Sigma <- get_update_VI_Sigma(data_, params, priors,
                                           X = X, XprimeX = XprimeX)
       if(debug){
-        new_ELBO <- get_ELBO(data_, params, priors)
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print("Problem at iteration", step_, "after updating Sigma")
         }
@@ -341,7 +347,8 @@ get_CAVI <- function(data_, q, n_steps,
       params$Beta <- get_update_VI_Beta(Y = data_, params, priors, 
                                         X = X, XprimeX = XprimeX)
       if(debug){
-        new_ELBO <- get_ELBO(data_, params, priors)
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print("Problem at iteration", step_, "after updating Beta")
         }
@@ -352,7 +359,8 @@ get_CAVI <- function(data_, q, n_steps,
     if(updates["Phi"]){
       params$Phi <- get_update_VI_Phi(params, priors)
       if(debug){
-        new_ELBO <- get_ELBO(data_, params, priors)
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print("Problem at iteration", step_, "after updating Phi")
         }
@@ -363,17 +371,19 @@ get_CAVI <- function(data_, q, n_steps,
       # deltas
       params$Delta <- get_update_VI_Delta(params, priors)
       if(debug){
-        new_ELBO <- get_ELBO(data_, params, priors)
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print(paste("Problem at iteration", step_, "after updating Delta"))
         }
         current_ELBO <- new_ELBO
       }
     }
-    if(n_steps){
+    if((n_steps %% get_ELBO_freq) == 0){
       ELBOS <- bind_rows(ELBOS,
                          data.frame(iteration = step_,
-                                    ELBO = get_ELBO(data_, params, priors)))
+                                    ELBO = get_ELBO(Y = data_, params = params, priors = priors, 
+                                                    X = X, XprimeX = XprimeX)))
     }
   }
   return(list(ELBOS = ELBOS, params = params))
