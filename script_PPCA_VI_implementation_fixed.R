@@ -75,15 +75,16 @@ result$params$Beta$M %>% t() %>% cbind(beta_true)
   all_results
 
 # mclapply ne marche pas????
-# all_results <- mclapply(1:4, get_result, 
-#                        Y = Y, X = X,
-#                        n_steps = 70, 
-#                        mc.cores = detectCores())
+all_results <- mclapply(1:30,
+                        FUN = function(i)
+                          get_result(Y = Y, X = X, n_steps = 150, seed = i),
+                        mc.cores = detectCores() - 2)
 
 map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
-  filter(iteration > 10) %>% 
+  filter(iteration > 9) %>%
   ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
-  geom_line()
+  geom_line() +
+  theme(legend.position = "none")
 
 # params_list <- map(all_results, "params")
 # 
