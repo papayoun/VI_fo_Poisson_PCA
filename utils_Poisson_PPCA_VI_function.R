@@ -112,7 +112,7 @@ get_update_Poisson_VI_Z <- function(Y, X = 0, params){
     # i de 1 à n, j de 1 à p
     m_ij = z_pars_ij[1]
     s2_ij = z_pars_ij[2]
-    res = y_ij * m_ij - exp(m_ij + s2_ij / 2) - # Likelihood term 
+    res = y_ij * m_ij - exp(m_ij + 0.5 * s2_ij)  - # Likelihood term 
       0.5 * A_j / B_j * (m_ij^2 + s2_ij - 2 * m_ij * M_ij) + # Prior term
       0.5 * log(s2_ij) # Variational entropy
     return(-res) # Return the negative results for optimization
@@ -121,7 +121,8 @@ get_update_Poisson_VI_Z <- function(Y, X = 0, params){
   prior_means <- X %*% params$Beta$M + t(params$Eta$M) %*% params$Lambda$M
   A <- params$Sigma$A
   B <- params$Sigma$B
-  m_start = log(Y + 1)
+  m_start <- params$Z$M
+  s2_start <- params$Z$S2
   colnames(m_start) = NULL
   # s2_start = apply(log(Y + 1), 2, 
   #                  function(x) rep(var(x), nrow(Y)))
@@ -131,7 +132,7 @@ get_update_Poisson_VI_Z <- function(Y, X = 0, params){
                                       index_matrix[, "j"],
                                       FUN = function(i, j){
                                         Opt <- optim(
-                                          par = c(m_start[i,j], 1),
+                                          par = c(m_start[i, j], s2_start[i, j]),
                                           fn = target_function,
                                           y_ij = Y[i, j],
                                           A_j = A[j],
@@ -270,7 +271,7 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
   }
   z_knowing_theta_expectation <- sum(.5 * n * expectations_log_sigma -
                                        expectations_sigma * map_dbl(1:p, get_E_quadr_form))
-  poisson_log_likelihood <- sum(Y * params$Z$M + exp(params$Z$M - 0.5 * params$Z$S2))
+  poisson_log_likelihood <- sum(Y * params$Z$M - exp(params$Z$M + 0.5 * params$Z$S2))
   # Priors terms
   prior_sigma_expectation <- sum((priors$Sigma$A - 1) * expectations_log_sigma - 
                                    priors$Sigma$B * expectations_sigma)
@@ -362,6 +363,17 @@ get_CAVI <- function(data_, q, n_steps,
   # print(X)
   # print(params$Beta$M)
   for(step_ in 1:n_steps){
+    if(updates["Z"]){
+      params$Z <- get_update_Poisson_VI_Z(Y = data_, X = X, params = params)
+      if(debug){
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print(paste("Problem at iteration", step_, "after updating Z"))
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
     # Lambdas
     if(updates["Lambda"]){
       params$Lambda <- get_update_Poisson_VI_Lambda(params = params)
@@ -369,7 +381,7 @@ get_CAVI <- function(data_, q, n_steps,
         new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
-          print("Problem at iteration", step_, "after updating Lambda")
+          print(paste("Problem at iteration", step_, "after updating Lambda"))
         }
         current_ELBO <- new_ELBO
       }
@@ -381,7 +393,7 @@ get_CAVI <- function(data_, q, n_steps,
         new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
-          print("Problem at iteration", step_, "after updating Eta")
+          print(paste("Problem at iteration", step_, "after updating Eta"))
         }
         current_ELBO <- new_ELBO
       }
@@ -394,7 +406,7 @@ get_CAVI <- function(data_, q, n_steps,
         new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
-          print("Problem at iteration", step_, "after updating Sigma")
+          print(paste("Problem at iteration", step_, "after updating Sigma"))
         }
         current_ELBO <- new_ELBO
       }
@@ -406,18 +418,7 @@ get_CAVI <- function(data_, q, n_steps,
         new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
-          print("Problem at iteration", step_, "after updating Beta")
-        }
-        current_ELBO <- new_ELBO
-      }
-    }
-    if(updates["Z"]){
-      params$Z <- get_update_Poisson_VI_Z(Y = data_, X = X, params = params)
-      if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
-                             X = X, XprimeX = XprimeX)
-        if(new_ELBO < current_ELBO){
-          print("Problem at iteration", step_, "after updating Beta")
+          print(paste("Problem at iteration", step_, "after updating Beta"))
         }
         current_ELBO <- new_ELBO
       }
