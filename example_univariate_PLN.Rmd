@@ -160,8 +160,18 @@ target_function <- function(z_pars, y, A, B, M_mu, n_post) {
 We therefore have all the ingredients to perform variational inference, which is done in the `perform_CAVI` function.
 
 ```{r perform_CAVI_function}
+
+ univariate_normal_gamma_entropy = function(moy,m, a,b){
+    # N(x,moy,(m*sigma^-2)-2)gamma(sigma^-2,a,b)
+    # https://statproofbook.github.io/P/ng-dent
+    nn=1
+    0.5*nn*log(2*pi)-0.5*log(abs(m))+0.5*nn +
+      a+lgamma(a)-(a+0.5*(nn-2))*digamma(a)+0.5*(nn-2)*log(b)
+ }
+
 perform_CAVI <- function(max_iter, Y, n0, a0, b0, mu0){
   # Intialisation
+  
   get_ELBO <- function(Y, A, B, M_z, M_mu, Omega_z, n_post){
     n <- length(Y)
     E_log_tau <- digamma(A) - log(B)
@@ -175,9 +185,11 @@ perform_CAVI <- function(max_iter, Y, n0, a0, b0, mu0){
       (b0 + .5 * n0 * mu0^2 - n0 * M_mu * mu0) * E_tau -
       .5 * n0 * E_tau_mu2
     q_z_term <- .5 * sum(log(Omega_z))
-    q_mu_tau_term <- -((A - .5) * E_log_tau -
-                         (B + .5 * n_post * M_mu^2 - n_post * M_mu^2) * E_tau -
-                         .5 * n_post * E_tau_mu2)
+    # q_mu_tau_term <- -((A - .5) * E_log_tau -
+    #                      (B + .5 * n_post * M_mu^2 - n_post * M_mu^2) * E_tau -
+    #                      .5 * n_post * E_tau_mu2)
+    q_mu_tau_term<- univariate_normal_gamma_entropy(moy=M_mu,m=n_post, a=A,b=B)
+    
     (ll_term + z_prior_term + mu_tau_prior_term + q_z_term + q_mu_tau_term) / n 
   }
   n <- length(Y)
@@ -238,10 +250,13 @@ CAVI_pars <- CAVI_results$pars
 We can check the evolution of the ELBO across iterations:
 
 ```{r graphe_ELBO}
-ggplot(CAVI_results$ELBO) +
+ggplot(CAVI_results$ELBO %>% filter(Iteration >1)  )+
   aes(x = Iteration, y = ELBO) +
   geom_point() +
   labs(title = "Evolution de l'ELBO")
+
+delta<-CAVI_results$ELBO %>% mutate(delta=ELBO-lag(ELBO)) %>% filter(Iteration >1) %>% pull(delta)
+all.equal(delta-delta*(delta>0),rep(0,length(delta)))
 ```
 
 Before exploring results, we will perform the inference on the same model with MCMC (in `Jags`).
@@ -344,10 +359,12 @@ Z_posterior_CAVI <- CAVI_pars$Z %>%
   }) %>% 
   ungroup()
 filter(MCMC_results, str_detect(Parameter, "Z")) %>%
+  filter(Parameter %in% c("Z[1]","Z[2]","Z[3]","Z[4]","Z[5]","Z[6]")) %>% 
   ggplot(mapping = aes(x = value)) +
   geom_density(aes(color = "MCMC")) +
   facet_wrap(~Parameter, labeller = label_parsed) +
-  geom_line(data = Z_posterior_CAVI, aes(y = posterior,
+  geom_line(data = Z_posterior_CAVI %>%
+  filter(Parameter %in% c("Z[1]","Z[2]","Z[3]","Z[4]","Z[5]","Z[6]")), aes(y = posterior,
                                          color = "VI")) +
   labs(x = "", y = "Posterior distribution", 
        title = expression("Estimated posterior distribution of latent variables"),
