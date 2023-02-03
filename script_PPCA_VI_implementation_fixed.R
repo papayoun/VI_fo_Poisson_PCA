@@ -70,7 +70,7 @@ result=get_result(Y=Y, X=X, seed=1, n_steps=70)
 result$ELBOS
 all(diff(result$ELBOS[, 2]) > 0)
 result$params$Beta$M %>% t() %>% cbind(beta_true)
-
+(round(result$params$Lambda$M[1:4,]*10)/10) %>% as.tibble() %>% t() %>% cbind(Lambda_true)
 1:4 %>%
   map(~ get_result(Y=Y, X=X, seed=.x, n_steps=70)) -> 
   all_results
