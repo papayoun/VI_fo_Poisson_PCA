@@ -9,10 +9,8 @@ source("utils_Poisson_PPCA_generating_data.R") # For true values
 
 Y <- read.table("data_Poisson_PPCA.txt", sep = ";") %>%
   as.matrix()
-X <- read.table("fixed_Poisson_PPCA.txt", sep = ";") %>%
+X_data <- read.table("fixed_Poisson_PPCA.txt", sep = ";") %>%
   as.matrix()
-F_x <- ncol(X)
-XprimeX = t(X) %*% X
 
 # VI inference functions -----------------------------------------------------
 
@@ -28,13 +26,20 @@ priors <- list(Sigma = list(A = 3, B = 2),
                Phi = list(A = 3/2, B = 3/2),
                Delta= list(A = c(5, rep(2, q - 1)), 
                            B = 1),
-               Beta = list(M = rep(0, F_x),
-                           C = rep(0.01, F_x)))
+               Beta = list(M = rep(0, ncol(X_data)),
+                           C = rep(0.01, ncol(X_data))))
 
-get_result <- function(Y, X, seed, n_steps=n_steps, debug = FALSE){
+get_result <- function(Y, X, seed, n_steps=n_steps, 
+                       updates = c(Lambda = TRUE, Sigma = TRUE,
+                                   Eta = TRUE, Delta = TRUE, 
+                                   Phi = TRUE, Beta = !is.null(X), Z = TRUE), 
+                       debug = FALSE){
   set.seed(seed)
   if(is.null(X)){
     F_x = 1
+  }
+  else{
+    F_x <- ncol(X)
   }
   init_params <- list(Lambda = list(M = matrix(rnorm(p * q),
                                                nrow = q, ncol = p),
@@ -59,27 +64,32 @@ get_result <- function(Y, X, seed, n_steps=n_steps, debug = FALSE){
                                            ncol = ncol(Y)))) 
   result <- get_CAVI(data_ = Y, X = X, q = q, 
                      n_steps = n_steps, params = init_params,
-                     updates = c(Lambda = TRUE, Sigma = TRUE,
-                                 Eta = TRUE, Delta = TRUE, 
-                                 Phi = TRUE, Beta = !is.null(X), Z = TRUE),
+                     updates = updates,
                      priors = priors, debug = debug)
   result
 }
 
-result=get_result(Y=Y, X=X, seed=1, n_steps=50, debug = TRUE)
-result$ELBOS
+result=get_result(Y=Y, 
+                  X = X_data, 
+                  seed = 1, 
+                  n_steps = 50, 
+                  updates = c(Lambda = TRUE, Sigma = TRUE,
+                              Eta = TRUE, Delta = TRUE, 
+                              Phi = TRUE, Beta = TRUE, Z = TRUE),
+                  debug = TRUE)
+plot(result$ELBOS)
 t(result$params$Beta$M)
 beta_true
 all(diff(result$ELBOS[, 2]) > 0)
 result$params$Beta$M %>% t() %>% cbind(beta_true)
 
 1:4 %>%
-  map(~ get_result(Y = Y, X = X, seed = .x, n_steps = 70)) -> 
+  map(~ get_result(Y = Y, X = X_data, seed = .x, n_steps = 70)) -> 
   all_results
 
 all_results <- mclapply(1:30,
                         FUN = function(i)
-                          get_result(Y = Y, X = X, n_steps = 150, seed = i),
+                          get_result(Y = Y, X = X_data, n_steps = 150, seed = i),
                         mc.cores = detectCores() - 2)
 
 map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
