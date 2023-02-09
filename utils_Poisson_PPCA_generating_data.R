@@ -43,7 +43,7 @@ Lambda_true <- matrix(sample(-1:1, size = p * q_true, replace = TRUE) *0.1,
                       nrow = p, ncol = q_true)
 
 # Fixed effects----------------------------------------------------------------
-X <- matrix(sample(seq(fr=-3, to=3,by=0.1), size = n * F_x, replace = TRUE),
+X <- matrix(sample(seq(from = -3, to = 3, by = 0.1), size = n * F_x, replace = TRUE),
             nrow = n, ncol = F_x)
 beta_true <- matrix(sample(-1:1, size = p * F_x, replace = TRUE) * 0.5,
                     nrow = p, ncol = F_x)
@@ -52,7 +52,7 @@ beta_true <- matrix(sample(-1:1, size = p * F_x, replace = TRUE) * 0.5,
 
 # Observations
 
-Z <- X %*% t(beta_true)+Eta_true %*% t(Lambda_true) + residus
+Z <- X %*% t(beta_true) + Eta_true %*% t(Lambda_true) + residus
 set.seed(123)
 Y <- apply(Z, 2, function(z) rpois(length(z), exp(z)))
 max(Y)
