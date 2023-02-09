@@ -9,7 +9,7 @@ source("utils_Poisson_PPCA_generating_data.R") # For true values
 
 Y <- read.table("data_Poisson_PPCA.txt", sep = ";") %>%
   as.matrix()
-X <- read.table("fixed_PPCA.txt", sep = ";") %>%
+X <- read.table("fixed_Poisson_PPCA.txt", sep = ";") %>%
   as.matrix()
 F_x <- ncol(X)
 XprimeX = t(X) %*% X
@@ -65,33 +65,34 @@ get_result <- function(Y, X, seed, n_steps=n_steps, debug = FALSE){
                      priors = priors, debug = debug)
   result
 }
-head(Z)
-head(result$params$Z$M)
-result=get_result(Y=Y, X=X, seed=1, n_steps=50, debug = FALSE)
+
+result=get_result(Y=Y, X=X, seed=1, n_steps=50, debug = TRUE)
 result$ELBOS
-result$ELBOS
+t(result$params$Beta$M)
+beta_true
 all(diff(result$ELBOS[, 2]) > 0)
 result$params$Beta$M %>% t() %>% cbind(beta_true)
 
 1:4 %>%
-  map(~ get_result(Y=Y, X=X, seed=.x, n_steps=70)) -> 
+  map(~ get_result(Y = Y, X = X, seed = .x, n_steps = 70)) -> 
   all_results
 
-# mclapply ne marche pas????
 all_results <- mclapply(1:30,
                         FUN = function(i)
                           get_result(Y = Y, X = X, n_steps = 150, seed = i),
                         mc.cores = detectCores() - 2)
 
 map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
-  filter(iteration > 9) %>%
+  filter(iteration > 120) %>%
   ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
   geom_line() +
   theme(legend.position = "none")
 
-# params_list <- map(all_results, "params")
-# 
-# best <- params_list[[1]]
+params_list <- map(all_results, "params")
+
+best <- params_list[[1]]
+t(best$Beta$M)
+beta_true
 # t(best$Lambda$M)
 # Lambda_true
 
