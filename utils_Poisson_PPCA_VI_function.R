@@ -1,4 +1,4 @@
-get_update_Poisson_VI_Lambda <- function(params){
+get_update_Poisson_VI_Lambda <- function(params, X){
   n <- nrow(params$Z$M)
   p <- ncol(params$Z$M)
   Eta <- params$Eta
@@ -20,13 +20,13 @@ get_update_Poisson_VI_Lambda <- function(params){
     abind(along = 3) # Mise au format array
   M_Lambda <- sapply(1:p, function(j){
     Sigma$A[j] / Sigma$B[j]  * V_Lambda[,, j] %*% Eta$M %*% 
-      (params$Z$M[, j] - X %*% params$Beta$M[, j]) 
+      (params$Z$M[, j] - X %*% params$Beta$M[, j, drop = FALSE]) 
   })
   list(M = M_Lambda, Cov = V_Lambda)
 }
 
 
-get_update_Poisson_VI_Eta <- function(params){
+get_update_Poisson_VI_Eta <- function(params, X){
   # Useful quantities
   # browser()
   n <- nrow(params$Z$M)
@@ -71,7 +71,7 @@ get_update_Poisson_VI_Sigma_without_fixed_effects <- function(params, priors){
              Eta$M[, i] %*% t(Eta$M[, i])
            }))
   get_B_sigma_j <- function(j){
-    term1 <- sum(0.5 * sum(params$Z$M[, j]^2  +  params$Z$S2[,j])) 
+    term1 <- 0.5 * sum(params$Z$M[, j]^2  +  params$Z$S2[,j]) 
     term2 <- -sum(params$Z$M[, j] * (t(Eta$M) %*% Lambda$M[,j])) # Eta$M is coded in q x n
     term3 <- 0.5 * sum(E_eta_prime_eta * 
                          (Lambda$Cov[,, j] + Lambda$M[, j] %*% t(Lambda$M[, j]))) 
@@ -92,17 +92,19 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
   Beta <- params$Beta
   # Posterior variationel de A
   update_without_X <- get_update_Poisson_VI_Sigma_without_fixed_effects(params, priors)
+  A = update_without_X$A
   if(all(X == 0)){ # Case when no covariates
-    return(list(A = update_without_X$A, B = update_without_X$B))
+    return(list(A = A, B = update_without_X$B))
   }
   else{
-    A <- update_without_X$A + F_x * 0.5
-    get_updade_term_B_sigma_j <- function(j){
-      term1 <- 0.5 * sum((XprimeX + priors$Beta$C) * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
+    get_update_term_B_sigma_j <- function(j){
+      # term1 <- 0.5 * sum((XprimeX + priors$Beta$C) * 
+      #                      (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
+      term1 <- 0.5 * sum(XprimeX * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
       term2 <- -sum((params$Z$M[, j] -  t(Eta$M) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
       term1 + term2
     }
-    B <- update_without_X$B + map_dbl(1:p, get_updade_term_B_sigma_j) 
+    B <- update_without_X$B + map_dbl(1:p, get_update_term_B_sigma_j) 
   }
   return(list(A = A, B = B))
 }
@@ -290,10 +292,13 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
     }))
   prior_beta_expectation <- 0
   if(any(X != 0)){ 
-    prior_beta_expectation <- 0.5 * F_x * sum(expectations_log_sigma) -
+    # Est ce que on considère un prior normal gamma ou normal.?
+    prior_beta_expectation <- 
+      # 0.5 * ncol(X) * sum(expectations_log_sigma) -
       0.5 * sum(map_dbl(1:p, function(j){
-        expectations_sigma[j] *sum(diag(priors$Beta$C) * 
-                                     (params$Beta$Cov[,, j] + diag(params$Beta$M[, j]^2)))
+        # expectations_sigma[j] *
+          sum(diag(priors$Beta$C) * 
+                (params$Beta$Cov[,, j] + diag(params$Beta$M[, j]^2)))
       }))
   }
   ELBO <- variational_entropy +
@@ -369,6 +374,7 @@ get_CAVI <- function(data_, q, n_steps,
         new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
+          print(new_ELBO - current_ELBO)
           print(paste("Problem at iteration", step_, "after updating Z"))
         }
         current_ELBO <- new_ELBO
@@ -376,11 +382,12 @@ get_CAVI <- function(data_, q, n_steps,
     }
     # Lambdas
     if(updates["Lambda"]){
-      params$Lambda <- get_update_Poisson_VI_Lambda(params = params)
+      params$Lambda <- get_update_Poisson_VI_Lambda(params = params, X = X)
       if(debug){
         new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
+          print(new_ELBO - current_ELBO)
           print(paste("Problem at iteration", step_, "after updating Lambda"))
         }
         current_ELBO <- new_ELBO
@@ -388,11 +395,12 @@ get_CAVI <- function(data_, q, n_steps,
     }
     # Etas
     if(updates["Eta"]){
-      params$Eta <- get_update_Poisson_VI_Eta(params = params)
+      params$Eta <- get_update_Poisson_VI_Eta(params = params, X = X)
       if(debug){
         new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
+          print(new_ELBO - current_ELBO)
           print(paste("Problem at iteration", step_, "after updating Eta"))
         }
         current_ELBO <- new_ELBO
@@ -406,6 +414,7 @@ get_CAVI <- function(data_, q, n_steps,
         new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
+          print(new_ELBO - current_ELBO)
           print(paste("Problem at iteration", step_, "after updating Sigma"))
         }
         current_ELBO <- new_ELBO
@@ -418,6 +427,7 @@ get_CAVI <- function(data_, q, n_steps,
         new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
+          print(new_ELBO - current_ELBO)
           print(paste("Problem at iteration", step_, "after updating Beta"))
         }
         current_ELBO <- new_ELBO
