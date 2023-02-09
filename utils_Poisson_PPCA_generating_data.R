@@ -44,7 +44,7 @@ Lambda_true <- matrix(sample(-1:1, size = p * q_true, replace = TRUE) *0.1,
 
 # Fixed effects----------------------------------------------------------------
 X <- matrix(sample(seq(from = -3, to = 3, by = 0.1), size = n * F_x, replace = TRUE),
-            nrow = n, ncol = F_x)
+            nrow = n, ncol = F_x) 
 beta_true <- matrix(sample(-1:1, size = p * F_x, replace = TRUE) * 0.5,
                     nrow = p, ncol = F_x)
 

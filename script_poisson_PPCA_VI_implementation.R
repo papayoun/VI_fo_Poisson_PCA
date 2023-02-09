@@ -77,20 +77,12 @@ result=get_result(Y=Y,
                               Eta = TRUE, Delta = TRUE, 
                               Phi = TRUE, Beta = TRUE, Z = TRUE),
                   debug = TRUE)
-plot(result$ELBOS)
-t(result$params$Beta$M)
-beta_true
-all(diff(result$ELBOS[, 2]) > 0)
-result$params$Beta$M %>% t() %>% cbind(beta_true)
 
-1:4 %>%
-  map(~ get_result(Y = Y, X = X_data, seed = .x, n_steps = 70)) -> 
-  all_results
 
 all_results <- mclapply(1:30,
                         FUN = function(i)
                           get_result(Y = Y, X = X_data, n_steps = 150, seed = i),
-                        mc.cores = detectCores() - 2)
+                        mc.cores = detectCores())
 
 map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
   filter(iteration > 120) %>%
