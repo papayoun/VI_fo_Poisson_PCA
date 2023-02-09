@@ -113,7 +113,7 @@ get_update_Poisson_VI_Z <- function(Y, X = 0, params){
     m_ij = z_pars_ij[1]
     s2_ij = z_pars_ij[2]
     res = y_ij * m_ij - exp(m_ij + 0.5 * s2_ij)  - # Likelihood term 
-      0.5 * A_j / B_j * (m_ij^2 + s2_ij - 2 * m_ij * M_ij) + # Prior term
+      0.5 * A_j / B_j * (m_ij^2 + s2_ij - 2 * m_ij * M_ij) + 
       0.5 * log(s2_ij) # Variational entropy
     return(-res) # Return the negative results for optimization
   }
@@ -235,7 +235,7 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
     sum(get_entropy_gamma(params$Sigma$A, params$Sigma$B)) + # Sigma 
     sum(get_entropy_gamma(params$Delta$A, params$Delta$B)) + # Delta 
     sum(get_entropy_gamma(params$Phi$A, params$Phi$B)) # Phi
-  if(all(X != 0)){ # Case with covariates X with parameter beta
+  if(any(X != 0)){ # Case with covariates X with parameter beta
     variational_entropy <- variational_entropy +
       sum(apply(params$Beta$Cov, 3, get_entropy_normal))  # Beta
   }
@@ -260,14 +260,14 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
     term2bis <- 0
     term3bis <- 0
     term4 <- 0
-    if(all(X != 0)){ # Case with covariates X with parameter beta
-      term2bis <- -sum(params$Z$M[, j] * (X %*% params$Beta$M[,j]) ) # Eta$M is coded in q x n
+    if(any(X != 0)){ # Case with covariates X with parameter beta
+      term2bis <- -sum(params$Z$M[, j] * (X %*% params$Beta$M[,j]) ) 
       term3bis <- 0.5 * sum(XprimeX * 
                               (params$Beta$Cov[,, j] + params$Beta$M[, j] %*% t(params$Beta$M[, j]))) 
       term4 <- sum((X %*% params$Beta$M[,j])*t(params$Lambda$M[,j]%*%params$Eta$M))
     }
     
-    term1 + term2 + term3 +term2bis +term3bis+term4
+    term1 + term2 + term3 + term2bis + term3bis + term4
   }
   z_knowing_theta_expectation <- sum(.5 * n * expectations_log_sigma -
                                        expectations_sigma * map_dbl(1:p, get_E_quadr_form))
@@ -289,7 +289,7 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
             (diag(params$Lambda$Cov[,, j]) + params$Lambda$M[, j]^2))
     }))
   prior_beta_expectation <- 0
-  if(all(X != 0)){ 
+  if(any(X != 0)){ 
     prior_beta_expectation <- 0.5 * F_x * sum(expectations_log_sigma) -
       0.5 * sum(map_dbl(1:p, function(j){
         expectations_sigma[j] *sum(diag(priors$Beta$C) * 
