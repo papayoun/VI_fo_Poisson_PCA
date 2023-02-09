@@ -735,4 +735,32 @@ print(g)
 
 ```
 
+```{r}
+n_samples <-n.iter/thin
+result_VI<-list()
+q_guess<-q
+result_VI_coef<-result$params
+# Faisons une structure similaire à Gibbs
+result_VI$Lambda<-array(0,dim = c(p,q_guess,n_samples))
+for(j in 1:p){result_VI$Lambda[j,1:q_guess,1:n_samples]=
+  t(mvtnorm::rmvnorm(n_samples,result_VI_coef$Lambda$M[1:q_guess,j],
+                     result_VI_coef$Lambda$Cov[1:q_guess,1:q_guess,j]))}
+result_VI$Eta<-array(0,dim = c(n,q_guess,n_samples))
+for(i in 1:n){result_VI$Eta[i,1:q_guess,1:n_samples]=
+  t(mvtnorm::rmvnorm(n_samples,result_VI_coef$Eta$M[,i],
+                     result_VI_coef$Eta$Cov[,,i]))}
+result_VI$Sigma<-matrix(0,nr=p,nc=n_samples)
+for(s in 1:n_samples){result_VI$Sigma[1:p,s]=1/rgamma(p,result_VI_coef$Sigma$A[1:p],
+                                                      result_VI_coef$Sigma$B[1:p])}
+
+
+Sigma_VI_df<- format_matrix(matrix_=result_VI$Sigma,
+                            param_name="s",
+                            suffix_ = "2")%>% 
+  mutate(method="VI")
+
+Lambda_hat_VI_df <- format_array(result_VI$Lambda,
+                                 "Lambda") %>% mutate(method="VI")
+```
+
 
