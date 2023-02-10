@@ -98,6 +98,7 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
   }
   else{
     get_update_term_B_sigma_j <- function(j){
+      # A = A + F_x * 0.5 # If normal gamma prior A REECRIRE
       # term1 <- 0.5 * sum((XprimeX + priors$Beta$C) * 
       #                      (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
       term1 <- 0.5 * sum(XprimeX * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
@@ -157,13 +158,18 @@ get_update_Poisson_VI_Z <- function(Y, X = 0, params){
                    ncol = ncol(Y)))
 }
 
+
+# Update de Beta ----------------------------------------------------------
+
+
 get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
   n <- nrow(params$Z$M)
   p <- ncol(params$Z$M)
   Sigma <- params$Sigma
   # Calcul des variances
   V_Beta <- lapply(1:p, function(j){
-    precision <- Sigma$A[j] / Sigma$B[j] * (XprimeX + priors$Beta$C)
+    # precision <- Sigma$A[j] / Sigma$B[j] * (XprimeX + priors$Beta$C)
+    precision <- Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$C
     variance <- solve(precision)
     return(variance)
   }) %>% 
@@ -367,6 +373,7 @@ get_CAVI <- function(data_, q, n_steps,
                       ELBO = current_ELBO)
   # print(X)
   # print(params$Beta$M)
+  
   for(step_ in 1:n_steps){
     if(updates["Z"]){
       params$Z <- get_update_Poisson_VI_Z(Y = data_, X = X, params = params)
