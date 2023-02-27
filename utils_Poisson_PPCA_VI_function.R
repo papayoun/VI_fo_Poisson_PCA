@@ -234,6 +234,8 @@ get_log_expectation_gamma <- function(A, B){
 }
 
 get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
+  n <- nrow(Y)
+  p <- ncol(Y)
   # Variational entropy term
   variational_entropy <- sum(apply(params$Lambda$Cov, 3, 
                                    get_entropy_normal)) + # Lambda
@@ -319,6 +321,8 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
 }
 
 
+
+
 get_CAVI <- function(data_, q, n_steps, 
                      X = NULL, 
                      set_seed = FALSE,
@@ -333,41 +337,41 @@ get_CAVI <- function(data_, q, n_steps,
     stop("We are bayesian guys, please specify a prior")
   }
   p <- ncol(data_); n <- nrow(data_); 
-  if(is.null(X)){
-    updates["Beta"] <- FALSE
-    X <- matrix(0, nrow = nrow(data_), ncol = 1)
-    priors$Beta = list(M = rep(0, ncol(X)),
-                       C = rep(0.01, ncol(X)))
-    params$Beta = list(M = matrix(0,
-                                  nrow = ncol(X), ncol = p),
-                             Cov = array(diag(0.001, ncol(X)), 
-                                   dim = c(ncol(X), ncol(X), p)))
-    
-  }
+  # if(is.null(X)){
+  #   updates["Beta"] <- FALSE
+  #   X <- matrix(0, nrow = nrow(data_), ncol = 1)
+  #   priors$Beta = list(M = rep(0, ncol(X)),
+  #                      C = rep(0.01, ncol(X)))
+  #   params$Beta = list(M = matrix(0,
+  #                                 nrow = ncol(X), ncol = p),
+  #                            Cov = array(diag(0.001, ncol(X)), 
+  #                                  dim = c(ncol(X), ncol(X), p)))
+  #   
+  # }
   F_x <- ncol(X)
   XprimeX <- t(X) %*% X
   if(set_seed){
     set.seed(set_seed)
   }
-  if(is.null(params)){
-    params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
-                                 Cov = array(diag(1, q), dim = c(q, q, p))),
-                   Beta = list(M = matrix(rnorm(F_x * p),
-                                          nrow = F_x, ncol = p),
-                               Cov = array(diag(1, F_x), 
-                                           dim = c(F_x, F_x, p))),
-                   Eta = list(M = matrix(rnorm(q * n), q, n),
-                              Cov = array(diag(1, q), dim = c(q, q, n))),
-                   Sigma = list(A = runif(p, 1, 3),
-                                B = runif(p, 1, 3)),
-                   Delta = list(A = runif(q, 2, 5) ,
-                                B = rep(1, q)),
-                   Phi = list(A = matrix(3/2, p, q),
-                              B = matrix(3/2, p, q)),
-                   Z = list(M = log(Y + 1),
-                            S2 = matrix(.1, nrow = nrow(Y),
-                                        ncol = ncol(Y))))
-  }
+  # if(is.null(params)){
+  #   params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
+  #                                Cov = array(diag(1, q), dim = c(q, q, p))),
+  #                  Beta = list(M = matrix(rnorm(F_x * p),
+  #                                         nrow = F_x, ncol = p),
+  #                              Cov = array(diag(1, F_x), 
+  #                                          dim = c(F_x, F_x, p))),
+  #                  Eta = list(M = matrix(rnorm(q * n), q, n),
+  #                             Cov = array(diag(1, q), dim = c(q, q, n))),
+  #                  Sigma = list(A = runif(p, 1, 3),
+  #                               B = runif(p, 1, 3)),
+  #                  Delta = list(A = runif(q, 2, 5) ,
+  #                               B = rep(1, q)),
+  #                  Phi = list(A = matrix(3/2, p, q),
+  #                             B = matrix(3/2, p, q)),
+  #                  Z = list(M = log(Y + 1),
+  #                           S2 = matrix(.1, nrow = nrow(Y),
+  #                                       ncol = ncol(Y))))
+  # }
   
   # Propagation
   # progess_bar <- txtProgressBar(min = 0, max = n_steps)
