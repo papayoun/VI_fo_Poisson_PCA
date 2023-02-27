@@ -183,7 +183,7 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
     sum(get_entropy_gamma(params$Sigma$A, params$Sigma$B)) + # Sigma 
     sum(get_entropy_gamma(params$Delta$A, params$Delta$B)) + # Delta 
     sum(get_entropy_gamma(params$Phi$A, params$Phi$B)) # Phi
-  if(all(X != 0)){ # Case with covariates X with parameter beta
+  if(any(X != 0)){ # Case with covariates X with parameter beta
     variational_entropy <- variational_entropy +
       sum(apply(params$Beta$Cov, 3, get_entropy_normal))  # Beta
   }
@@ -208,7 +208,7 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
     term2bis <- 0
     term3bis <- 0
     term4 <- 0
-    if(all(X != 0)){ # Case with covariates X with parameter beta
+    if(any(X != 0)){ # Case with covariates X with parameter beta
       term2bis <- -sum(Y[, j] * (X %*% params$Beta$M[,j]) ) # Eta$M is coded in q x n
       term3bis <- 0.5 * sum(XprimeX * 
                               (params$Beta$Cov[,, j] + params$Beta$M[, j] %*% t(params$Beta$M[, j]))) 
@@ -236,7 +236,7 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
             (diag(params$Lambda$Cov[,, j]) + params$Lambda$M[, j]^2))
     }))
   prior_beta_expectation <- 0
-  if(all(X != 0)){ 
+  if(any(X != 0)){ 
     prior_beta_expectation <- 0.5 * F_x * sum(expectations_log_sigma) -
       0.5 * sum(map_dbl(1:p, function(j){
         expectations_sigma[j] *sum(diag(priors$Beta$C) * 
@@ -274,6 +274,10 @@ get_CAVI <- function(data_, q, n_steps,
     X <- matrix(0, nrow = nrow(data_), ncol = 1)
     priors$Beta = list(M = rep(0, ncol(X)),
                        C = rep(0.01, ncol(X)))
+    params$Beta =  list(M = matrix(0,
+                                  nrow = ncol(X), ncol = p),
+                        Cov = array(diag(0.01, ncol(X)), 
+                                    dim = c(ncol(X),ncol(X), p)))
   }
   F_x <- ncol(X)
   XprimeX <- t(X) %*% X
