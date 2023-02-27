@@ -3,7 +3,7 @@ library(tidyverse)
 library(abind) # To gather results together
 library(parallel) # For some parallel computations
 library(pacman) # For progress bar
-# source("utils_Poisson_PPCA_generating_data.R") # For true values
+source("utils_generating_data.R") # For true values
 
 
 # Data --------------------------------------------------------------------
@@ -24,7 +24,49 @@ result <- get_CAVI(Y = Y,
                    n_steps = 50, 
                    debug = FALSE)
 
+result$params$Eta$M
+
+
+# Beta ? ------------------------------------------------------------------
+
+beta_true
+round(result$params$Beta$M, 2)
+
+# Lambda? -----------------------------------------------------------------
+
+
+Lambda_true %*% t(Lambda_true)
+round(t(result$params$Lambda$M) %*% result$params$Lambda$M, 2)
+
+
+# Eta x Lambda ? ----------------------------------------------------------
+
+head(Eta_true %*% t(Lambda_true))
+round(t(result$params$Eta$M) %*% result$params$Lambda$M, 2) %>% 
+  head()
+
+range(result$params$Z$M - X %*% t(result$params$Beta$M))
+
+
+
+
+
+
+
+
+
 plot(result$ELBOS[-c(1:90),])
+
+
+
+
+
+
+
+
+
+
+
 result$params$Lambda$M
 result_VI <- result
 save(result_VI, file = "result_VI.RData")

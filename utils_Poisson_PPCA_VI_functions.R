@@ -30,9 +30,6 @@ get_update_Poisson_VI_Lambda <- function(params, X){
 
 get_update_Poisson_VI_Eta <- function(params, X){
   # Useful quantities
-  # browser()
-  params$n <- nrow(params$Z$M)
-  params$p <- ncol(params$Z$M)
   Lambda <- params$Lambda
   Sigma <- params$Sigma
   Phi <- params$Phi
@@ -403,7 +400,7 @@ get_CAVI <- function(Y,
                            X = X, XprimeX = XprimeX)
   ELBOS <- data.frame(iteration = 0, 
                       ELBO = current_ELBO)
-
+  pacman::p_load(progress)
   my_progress_bar <- progress_bar$new(total=n_steps)
   for(step_ in 1:n_steps){
     my_progress_bar$tick()
