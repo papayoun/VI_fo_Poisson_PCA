@@ -46,13 +46,15 @@ get_result <- function(seed, n_steps){
                      n_steps = n_steps, params = init_params,
                      updates = c(Lambda = TRUE, Sigma = TRUE,
                                  Eta = TRUE, Delta = TRUE, 
-                                 Phi = TRUE),
+                                 Phi = TRUE, Beta = FALSE),
                      priors = priors)
   result
 }
 
+result=get_result(seed=1, n_steps=200)
+
 all_results <- mclapply(1:4, get_result, 
-                        n_steps = 2000, 
+                        n_steps = 200, 
                         mc.cores = detectCores())
 
 

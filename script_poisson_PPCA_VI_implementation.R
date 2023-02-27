@@ -29,7 +29,7 @@ priors <- list(Sigma = list(A = 3, B = 2),
                Beta = list(M = rep(0, ncol(X_data)),
                            C = rep(0.01, ncol(X_data))))
 
-get_result <- function(Y, X, seed, n_steps, 
+get_result <- function(Y, X, seed, n_steps, init_params = NULL,
                        updates = c(Lambda = TRUE, Sigma = TRUE,
                                    Eta = TRUE, Delta = TRUE, 
                                    Phi = TRUE, Beta = !is.null(X), Z = TRUE), 
@@ -41,6 +41,7 @@ get_result <- function(Y, X, seed, n_steps,
   else{
     F_x <- ncol(X)
   }
+  if(is.null(init_params)){
   init_params <- list(Lambda = list(M = matrix(rnorm(p * q),
                                                nrow = q, ncol = p),
                                     Cov = array(diag(1, q), 
@@ -62,6 +63,7 @@ get_result <- function(Y, X, seed, n_steps,
                       Z = list(M = log(Y + 1),
                                S2 = matrix(.1, nrow = nrow(Y),
                                            ncol = ncol(Y)))) 
+  }
   result <- get_CAVI(data_ = Y, X = X, q = q, 
                      n_steps = n_steps, params = init_params,
                      updates = updates,
@@ -70,27 +72,28 @@ get_result <- function(Y, X, seed, n_steps,
 }
 
 result=get_result(Y=Y, 
-                  X = NULL, 
+                  X = X_data, 
                   seed = 1, 
                   n_steps = 50, 
                   updates = c(Lambda = TRUE, Sigma = TRUE,
                               Eta = FALSE, Delta = TRUE, 
                               Phi = TRUE, Beta = FALSE, Z = TRUE),
                   debug = TRUE)
+
 plot(result$ELBOS[-c(1:10),])
 result$params$Lambda$M
 result_VI <- result
 save(result_VI, file = "result_VI.RData")
-# all_results <- lapply(1:4,
-#                         FUN = function(i)
-#                           get_result(Y = Y, X = X_data, n_steps = 50, seed = i)
-#                       )
-# 
-# map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
-#   filter(iteration > 10) %>%
-#   ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
-#   geom_line() +
-#   theme(legend.position = "none")
+all_results <- lapply(1:4,
+                        FUN = function(i)
+                          get_result(Y = Y, X = X_data, n_steps = 50, seed = i)
+                      )
+
+map_dfr(all_results, "ELBOS", .id = "Replicate") %>%
+  filter(iteration > 10) %>%
+  ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
+  geom_line() +
+  theme(legend.position = "none")
 
 # params_list <- map(all_results, "params")
 # 

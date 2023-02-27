@@ -142,9 +142,8 @@ get_update_Poisson_VI_Z <- function(Y, X = 0, params){
                                           B_j = B[j],
                                           M_ij = prior_means[i,j],
                                           method = "L-BFGS-B",
-                                          lower = c(-1.5 * abs(prior_means[i,j]), 1e-6),
-                                          upper = c(1.5 * log(Y[i, j] + 1 ), 10),
-                                          control = list(maxit = 100)
+                                          lower = c(-Inf, 1e-10),
+                                          upper = c(Inf, 100)
                                         )
                                         c(mean = Opt$par[1], var = Opt$par[2])
                                       },
@@ -339,6 +338,11 @@ get_CAVI <- function(data_, q, n_steps,
     X <- matrix(0, nrow = nrow(data_), ncol = 1)
     priors$Beta = list(M = rep(0, ncol(X)),
                        C = rep(0.01, ncol(X)))
+    params$Beta = list(M = matrix(0,
+                                  nrow = ncol(X), ncol = p),
+                             Cov = array(diag(0.001, ncol(X)), 
+                                   dim = c(ncol(X), ncol(X), p)))
+    
   }
   F_x <- ncol(X)
   XprimeX <- t(X) %*% X
@@ -375,6 +379,7 @@ get_CAVI <- function(data_, q, n_steps,
   # print(params$Beta$M)
   
   for(step_ in 1:n_steps){
+    print(step_)
     if(updates["Z"]){
       params$Z <- get_update_Poisson_VI_Z(Y = data_, X = X, params = params)
       if(debug){
