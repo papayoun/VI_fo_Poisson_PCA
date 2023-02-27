@@ -1,3 +1,7 @@
+
+# Update functions --------------------------------------------------------
+
+
 get_update_Poisson_VI_Lambda <- function(params, X){
   n <- nrow(params$Z$M)
   p <- ncol(params$Z$M)
@@ -99,7 +103,7 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
   else{
     get_update_term_B_sigma_j <- function(j){
       # A = A + F_x * 0.5 # If normal gamma prior A REECRIRE
-      # term1 <- 0.5 * sum((XprimeX + priors$Beta$C) * 
+      # term1 <- 0.5 * sum((XprimeX + priors$Beta$Precision[,,j]) * 
       #                      (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
       term1 <- 0.5 * sum(XprimeX * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
       term2 <- -sum((params$Z$M[, j] -  t(Eta$M) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
@@ -158,7 +162,6 @@ get_update_Poisson_VI_Z <- function(Y, X = 0, params){
 }
 
 
-# Update de Beta ----------------------------------------------------------
 
 
 get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
@@ -167,15 +170,17 @@ get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
   Sigma <- params$Sigma
   # Calcul des variances
   V_Beta <- lapply(1:p, function(j){
-    # precision <- Sigma$A[j] / Sigma$B[j] * (XprimeX + priors$Beta$C)
-    precision <- Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$C
+    # precision <- Sigma$A[j] / Sigma$B[j] * (XprimeX + priors$Beta$Precision[,,j])
+    precision <- Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$Precision[,,j]
     variance <- solve(precision)
     return(variance)
   }) %>% 
     abind(along = 3) # Mise au format array
   M_Beta <- sapply(1:p, function(j){
-    Sigma$A[j] / Sigma$B[j]  * V_Beta[,, j] %*% t(X) %*% 
-      (params$Z$M[, j] - t(params$Eta$M) %*% params$Lambda$M[, j])
+  V_Beta[,, j] %*% (
+    Sigma$A[j] / Sigma$B[j]  * t(X) %*% 
+      (params$Z$M[, j] - t(params$Eta$M) %*% params$Lambda$M[, j]) + 
+      priors$Beta$Precision[,, j] %*% priors$Beta$M[,j])
   })
   list(M = M_Beta, Cov = V_Beta)
 }
@@ -217,6 +222,10 @@ get_update_Poisson_VI_Delta <- function(params, priors){
   list(A = new_A, B = new_B)
 }
 
+
+# Miscellaneous functions for ELBO ----------------------------------------
+
+
 get_entropy_normal <- function(Cov){
   0.5 * log(det(Cov))
 }
@@ -232,6 +241,10 @@ get_expectation_gamma <- function(A, B){
 get_log_expectation_gamma <- function(A, B){
   digamma(A) -  log(B)
 }
+
+
+# Main function to compute ELBO -------------------------------------------
+
 
 get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
   n <- nrow(Y)
@@ -299,13 +312,14 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
     }))
   prior_beta_expectation <- 0
   if(any(X != 0)){ 
-    # Est ce que on considère un prior normal gamma ou normal.?
+    # On considère un prior normal (non lié aux sigmas)
     prior_beta_expectation <- 
-      # 0.5 * ncol(X) * sum(expectations_log_sigma) -
-      0.5 * sum(map_dbl(1:p, function(j){
-        # expectations_sigma[j] *
-          sum(diag(priors$Beta$C) * 
-                (params$Beta$Cov[,, j] + diag(params$Beta$M[, j]^2)))
+      -0.5 * sum(map_dbl(1:p, function(j){
+        # Expectation of beta'P0 beta
+          sum(priors$Beta$Precision[,,j] * 
+                (params$Beta$Cov[,, j] + diag(params$Beta$M[, j]^2))) -
+          2 * sum(params$Beta$M[, j] * priors$Beta$Precision[,,j] %*% priors$Beta$M[,j])
+        
       }))
   }
   ELBO <- variational_entropy +
@@ -323,35 +337,42 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
 
 
 
-get_CAVI <- function(data_, q, n_steps, 
+get_CAVI <- function(Y, 
                      X = NULL, 
-                     set_seed = FALSE,
-                     params = NULL,
+                     q, 
                      priors = NULL,
-                     updates = c(Lambda = TRUE, Sigma = TRUE,
-                                 Eta = TRUE, Delta = TRUE, Phi = TRUE, 
-                                 Beta = TRUE, Z = TRUE),
+                     n_steps, 
+                     seed = NULL,
+                     params = NULL,
+                     updates = NULL,
                      debug = FALSE,
                      get_ELBO_freq = 1){
+  p <- ncol(Y); n <- nrow(Y); 
   if(is.null(priors)){
     stop("We are bayesian guys, please specify a prior")
   }
-  p <- ncol(data_); n <- nrow(data_); 
-  # if(is.null(X)){
-  #   updates["Beta"] <- FALSE
-  #   X <- matrix(0, nrow = nrow(data_), ncol = 1)
-  #   priors$Beta = list(M = rep(0, ncol(X)),
-  #                      C = rep(0.01, ncol(X)))
-  #   params$Beta = list(M = matrix(0,
-  #                                 nrow = ncol(X), ncol = p),
-  #                            Cov = array(diag(0.001, ncol(X)), 
-  #                                  dim = c(ncol(X), ncol(X), p)))
-  #   
-  # }
+  if(is.null(updates)){
+    updates = c(Lambda = TRUE, Sigma = TRUE,
+                Eta = TRUE, Delta = TRUE, Phi = TRUE, 
+                Beta = TRUE, Z = TRUE)
+  }
+  if(is.null(X)){
+    updates["Beta"] <- FALSE
+    print("As no X is provided, Beta won't be updated")
+    X <- matrix(0, nrow = n, ncol = 1)
+    priors$Beta = list(M = rep(0, ncol(X)),
+                       C = rep(0.01, ncol(X)))
+    params$Beta = list(M = matrix(0,
+                                  nrow = ncol(X), ncol = p),
+                             Cov = array(diag(0.001, ncol(X)),
+                                   dim = c(ncol(X), ncol(X), p)))
+
+  }
   F_x <- ncol(X)
   XprimeX <- t(X) %*% X
-  if(set_seed){
-    set.seed(set_seed)
+  if(!is.null(seed)){
+    print(paste("Random seed fixed to", seed))
+    set.seed(seed)
   }
   # if(is.null(params)){
   #   params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
@@ -375,7 +396,7 @@ get_CAVI <- function(data_, q, n_steps,
   
   # Propagation
   # progess_bar <- txtProgressBar(min = 0, max = n_steps)
-  current_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+  current_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                            X = X, XprimeX = XprimeX)
   ELBOS <- data.frame(iteration = 0, 
                       ELBO = current_ELBO)
@@ -385,9 +406,9 @@ get_CAVI <- function(data_, q, n_steps,
   for(step_ in 1:n_steps){
     print(step_)
     if(updates["Z"]){
-      params$Z <- get_update_Poisson_VI_Z(Y = data_, X = X, params = params)
+      params$Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print(new_ELBO - current_ELBO)
@@ -400,7 +421,7 @@ get_CAVI <- function(data_, q, n_steps,
     if(updates["Lambda"]){
       params$Lambda <- get_update_Poisson_VI_Lambda(params = params, X = X)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print(new_ELBO - current_ELBO)
@@ -413,7 +434,7 @@ get_CAVI <- function(data_, q, n_steps,
     if(updates["Eta"]){
       params$Eta <- get_update_Poisson_VI_Eta(params = params, X = X)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print(new_ELBO - current_ELBO)
@@ -427,7 +448,7 @@ get_CAVI <- function(data_, q, n_steps,
       params$Sigma <- get_update_Poisson_VI_Sigma(params = params, priors = priors,
                                                   X = X, XprimeX = XprimeX)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print(new_ELBO - current_ELBO)
@@ -440,7 +461,7 @@ get_CAVI <- function(data_, q, n_steps,
       params$Beta <- get_update_Poisson_VI_Beta(params = params, priors = priors, 
                                                 X = X, XprimeX = XprimeX)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print(new_ELBO - current_ELBO)
@@ -453,7 +474,7 @@ get_CAVI <- function(data_, q, n_steps,
     if(updates["Phi"]){
       params$Phi <- get_update_Poisson_VI_Phi(params, priors)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print("Problem at iteration", step_, "after updating Phi")
@@ -465,7 +486,7 @@ get_CAVI <- function(data_, q, n_steps,
       # deltas
       params$Delta <- get_update_Poisson_VI_Delta(params, priors)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print(paste("Problem at iteration", step_, "after updating Delta"))
@@ -476,12 +497,17 @@ get_CAVI <- function(data_, q, n_steps,
     if((n_steps %% get_ELBO_freq) == 0){
       ELBOS <- bind_rows(ELBOS,
                          data.frame(iteration = step_,
-                                    ELBO = get_ELBO(Y = data_, params = params, priors = priors, 
+                                    ELBO = get_ELBO(Y = Y, params = params, 
+                                                    priors = priors, 
                                                     X = X, XprimeX = XprimeX)))
     }
   }
   return(list(ELBOS = ELBOS, params = params))
 }
+
+
+
+# Formatting functions ----------------------------------------------------
 
 
 
