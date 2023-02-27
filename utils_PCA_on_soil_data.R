@@ -1,3 +1,4 @@
+rm(list = ls())
 
 # Librairies --------------------------------------------------------------
 
@@ -7,9 +8,9 @@ library(factoextra) # For PCA graphs
 
 # Loading data ------------------------------------------------------------
 
-soil_raw <- read.table("data_sets/data_soil_characteristics.txt",
+soil_raw <- read.table("data_sets/borneo/data_soil_characteristics.txt",
                         sep = ";", header = TRUE)
-abundance_raw <- read.table("data_sets/data_abundance.txt",
+abundance_raw <- read.table("data_sets/borneo/data_abundance.txt",
                              sep = ";", header = TRUE)
 
 # Get transformed data for PCA ------------------------------------------
@@ -55,5 +56,6 @@ PCA_result$ind$coord %>%
          Sol = soil_for_pca$Sol) %>% 
   rename_at(vars(contains("Dim.")), 
             function(nom) str_replace(nom, "Dim.", "Z")) %>% 
-  write.table(file = "processed_data/data_soil_pca.txt",
-              sep = ",", col.names = TRUE, row.names = FALSE)
+  write.table(file = "data_sets/borneo/data_soil_characteristics_after_pca.txt",
+              sep = ";", col.names = TRUE, row.names = FALSE)
+

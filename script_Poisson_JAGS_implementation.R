@@ -4,9 +4,11 @@ library(rjags)
 
 # Data --------------------------------------------------------------------
 
-Y <- read.table("data_Poisson_PPCA.txt", sep = ";") %>%
+Y <- read.table("data_sets/synthetic/data_Y_Poisson_PPCA_with_covariates.txt", 
+                sep = ";") %>%
   as.matrix()
-X_data <- read.table("fixed_Poisson_PPCA.txt", sep = ";") %>%
+X <- read.table("data_sets/synthetic/data_covariates_Poisson_PPCA.txt", 
+                sep = ";") %>%
   as.matrix()
 
 #Un peu long mais faisable en jags pour n=100,p=10,q=7,F_x=2.
@@ -64,8 +66,8 @@ data_for_JAGS <- list(
   p = dim(Y)[2],
   q = 7,
   Y = Y,
-  X = X_data,
-  F_x = ncol(X_data)
+  X = X,
+  F_x = ncol(X)
 )
 
 n.adapt = 300

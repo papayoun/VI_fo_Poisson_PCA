@@ -3,26 +3,24 @@
 
 
 get_update_Poisson_VI_Lambda <- function(params, X){
-  n <- nrow(params$Z$M)
-  p <- ncol(params$Z$M)
   Eta <- params$Eta
   Sigma <- params$Sigma
   Phi <- params$Phi
   Delta <- params$Delta
   E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
-           x = map(1:n, function(i){
+           x = map(1:params$n, function(i){
              Eta$M[, i] %*% t(Eta$M[, i])
            }))
   # Calcul des precisions
-  V_Lambda <- lapply(1:p, function(j){
+  V_Lambda <- lapply(1:params$p, function(j){
     precision <- Sigma$A[j] / Sigma$B[j] * E_eta_prime_eta + 
       diag(Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B))
     variance <- solve(precision)
     return(variance)
   }) %>% 
     abind(along = 3) # Mise au format array
-  M_Lambda <- sapply(1:p, function(j){
+  M_Lambda <- sapply(1:params$p, function(j){
     Sigma$A[j] / Sigma$B[j]  * V_Lambda[,, j] %*% Eta$M %*% 
       (params$Z$M[, j] - X %*% params$Beta$M[, j, drop = FALSE]) 
   })
@@ -33,45 +31,42 @@ get_update_Poisson_VI_Lambda <- function(params, X){
 get_update_Poisson_VI_Eta <- function(params, X){
   # Useful quantities
   # browser()
-  n <- nrow(params$Z$M)
-  p <- ncol(params$Z$M)
+  params$n <- nrow(params$Z$M)
+  params$p <- ncol(params$Z$M)
   Lambda <- params$Lambda
-  q <- nrow(Lambda$M)
   Sigma <- params$Sigma
   Phi <- params$Phi
   Delta <- params$Delta
   
   #First, get the common covariance matrix
-  common_cov <- lapply(1:p, function(j){
+  common_cov <- lapply(1:params$p, function(j){
     Sigma$A[j] / Sigma$B[j] * 
       (Lambda$M[,j] %*% t(Lambda$M[,j]) + Lambda$Cov[,,j])
   }) %>% 
     Reduce(f = "+") %>% 
-    {. + diag(q)} %>% 
+    {. + diag(params$q)} %>% 
     solve()
   # The common matrix for all means
   mean_matrix <- common_cov %*% Lambda$M %*% diag(Sigma$A/Sigma$B)
   # The means
   # Response matrix
   response_matrix <- params$Z$M - X %*% params$Beta$M
-  M <- sapply(1:n, function(i){
+  M <- sapply(1:params$n, function(i){
     mean_matrix %*% response_matrix[i, ] 
   })
-  Cov <- array(common_cov, dim = c(q, q, n))
+  Cov <- array(common_cov, dim = c(params$q, params$q, params$n))
   list(M = M, Cov = Cov)
 }
 
 get_update_Poisson_VI_Sigma_without_fixed_effects <- function(params, priors){
-  n <- nrow(params$Z$M)
-  p <- ncol(params$Z$M)
   Lambda <- params$Lambda
   Eta <- params$Eta
   Phi <- params$Phi
   Delta <- params$Delta
-  A <- rep(priors$Sigma$A + n / 2, p)
+  A <- rep(priors$Sigma$A + params$n / 2, params$p)
   E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
-           x = lapply(1:n, function(i){
+           x = lapply(1:params$n, function(i){
              Eta$M[, i] %*% t(Eta$M[, i])
            }))
   get_B_sigma_j <- function(j){
@@ -81,16 +76,12 @@ get_update_Poisson_VI_Sigma_without_fixed_effects <- function(params, priors){
                          (Lambda$Cov[,, j] + Lambda$M[, j] %*% t(Lambda$M[, j]))) 
     term1 + term2 + term3
   }
-  B <- priors$Sigma$B + sapply(1:p, get_B_sigma_j)
+  B <- priors$Sigma$B + sapply(1:params$p, get_B_sigma_j)
   list(A = A, B = B)
 }
 
 get_update_Poisson_VI_Sigma <- function(params, priors,
                                         X = 0, XprimeX = 0){
-  # Useful quantities
-  n <- nrow(params$Z$M)
-  p <- ncol(params$Z$M)
-  F_x <- ncol(X)
   Lambda <- params$Lambda
   Eta <- params$Eta
   Beta <- params$Beta
@@ -102,19 +93,16 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
   }
   else{
     get_update_term_B_sigma_j <- function(j){
-      # A = A + F_x * 0.5 # If normal gamma prior A REECRIRE
-      # term1 <- 0.5 * sum((XprimeX + priors$Beta$Precision[,,j]) * 
-      #                      (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
       term1 <- 0.5 * sum(XprimeX * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
       term2 <- -sum((params$Z$M[, j] -  t(Eta$M) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
       term1 + term2
     }
-    B <- update_without_X$B + map_dbl(1:p, get_update_term_B_sigma_j) 
+    B <- update_without_X$B + map_dbl(1:params$p, get_update_term_B_sigma_j) 
   }
   return(list(A = A, B = B))
 }
 
-get_update_Poisson_VI_Z <- function(Y, X = 0, params){
+get_update_Poisson_VI_Z <- function(Y, X, params){
   target_function <- function(z_pars_ij, y_ij, A_j, B_j, M_ij) {
     # i de 1 à n, j de 1 à p
     m_ij = z_pars_ij[1]
@@ -131,10 +119,8 @@ get_update_Poisson_VI_Z <- function(Y, X = 0, params){
   m_start <- params$Z$M
   s2_start <- params$Z$S2
   colnames(m_start) = NULL
-  # s2_start = apply(log(Y + 1), 2, 
-  #                  function(x) rep(var(x), nrow(Y)))
-  index_matrix <- expand.grid(i = 1:nrow(Y),
-                              j = 1:ncol(Y))
+  index_matrix <- expand.grid(i = 1:params$n,
+                              j = 1:params$p)
   optim_results <- parallel::mcmapply(index_matrix[, "i"], 
                                       index_matrix[, "j"],
                                       FUN = function(i, j){
@@ -154,48 +140,44 @@ get_update_Poisson_VI_Z <- function(Y, X = 0, params){
                                       mc.cores = parallel::detectCores() - 2,
                                       SIMPLIFY = TRUE)
   list(M = matrix(optim_results["mean", ],
-                  nrow = nrow(Y),
-                  ncol = ncol(Y)),
+                  nrow = params$n,
+                  ncol = params$p),
        S2 = matrix(optim_results["var", ],
-                   nrow = nrow(Y),
-                   ncol = ncol(Y)))
+                   nrow = params$n,
+                   ncol = params$p))
 }
 
 
 
 
 get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
-  n <- nrow(params$Z$M)
-  p <- ncol(params$Z$M)
   Sigma <- params$Sigma
   # Calcul des variances
-  V_Beta <- lapply(1:p, function(j){
-    # precision <- Sigma$A[j] / Sigma$B[j] * (XprimeX + priors$Beta$Precision[,,j])
+  V_Beta <- lapply(1:params$p, function(j){
     precision <- Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$Precision[,,j]
     variance <- solve(precision)
     return(variance)
   }) %>% 
     abind(along = 3) # Mise au format array
-  M_Beta <- sapply(1:p, function(j){
-  V_Beta[,, j] %*% (
-    Sigma$A[j] / Sigma$B[j]  * t(X) %*% 
-      (params$Z$M[, j] - t(params$Eta$M) %*% params$Lambda$M[, j]) + 
-      priors$Beta$Precision[,, j] %*% priors$Beta$M[,j])
+  M_Beta <- sapply(1:params$p, function(j){
+    V_Beta[,, j] %*% (
+      Sigma$A[j] / Sigma$B[j]  * t(X) %*% 
+        (params$Z$M[, j] - t(params$Eta$M) %*% params$Lambda$M[, j]) + 
+        priors$Beta$Precision[,, j] %*% priors$Beta$M[,j])
   })
   list(M = M_Beta, Cov = V_Beta)
 }
 
 get_update_Poisson_VI_Phi <- function(params, priors){
   Lambda <- params$Lambda
-  q <- nrow(Lambda$M)
   Eta <- params$Eta
   Delta <- params$Delta
   
   # le meme pour tous
-  A <- matrix(priors$Phi$A + 0.5, p, q)
+  A <- matrix(priors$Phi$A + 0.5, params$p, params$q)
   
   cumprod_Delta  = cumprod(Delta$A/Delta$B)
-  B <- sapply(1:q, function(h){
+  B <- sapply(1:params$q, function(h){
     priors$Phi$B + 
       .5 * (Lambda$M[h, ]^2 + Lambda$Cov[h, h, ]) * cumprod_Delta[h]
   })
@@ -203,21 +185,19 @@ get_update_Poisson_VI_Phi <- function(params, priors){
 }
 
 get_update_Poisson_VI_Delta <- function(params, priors){
-  p <- ncol(params$Lambda$M)
-  q <- nrow(params$Lambda$M)
-  new_A <- priors$Delta$A + 0.5 * p * (q + 1 - (1:q))
-  E_phi_L2 <- sapply(1:q, function(h){
+  new_A <- priors$Delta$A + 0.5 * params$p * (params$q + 1 - (1:params$q))
+  E_phi_L2 <- sapply(1:params$q, function(h){
     E_phi_h <- params$Phi$A[, h] / params$Phi$B[, h]
     E_L2 <- params$Lambda$M[h, ]^2 + params$Lambda$Cov[h, h, ]
     sum(E_phi_h * E_L2)
   })
   new_B <- params$Delta$B
   new_B[1] <- priors$Delta$B + .5 * sum(E_phi_L2 * cumprod(new_A / new_B) / (new_A[1] / new_B[1]))
-  for(k in 2:q){
+  for(k in 2:params$q){
     E_delta_all <- cumprod(new_A / new_B)
     E_delta_k <- (new_A[k] / new_B[k])
-    new_B[k] <- priors$Delta$B  + .5 * sum(E_phi_L2[k:q] * 
-                                             E_delta_all[k:q] / E_delta_k )
+    new_B[k] <- priors$Delta$B  + .5 * sum(E_phi_L2[k:params$q] * 
+                                             E_delta_all[k:params$q] / E_delta_k )
   }
   list(A = new_A, B = new_B)
 }
@@ -247,8 +227,6 @@ get_log_expectation_gamma <- function(A, B){
 
 
 get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
-  n <- nrow(Y)
-  p <- ncol(Y)
   # Variational entropy term
   variational_entropy <- sum(apply(params$Lambda$Cov, 3, 
                                    get_entropy_normal)) + # Lambda
@@ -271,7 +249,7 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
   # Likelihood term
   E_eta_prime_eta <- apply(params$Eta$Cov, c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
-           x = lapply(1:n, function(i){
+           x = lapply(1:params$n, function(i){
              params$Eta$M[, i] %*% t(params$Eta$M[, i])
            }))
   get_E_quadr_form <- function(j){
@@ -291,8 +269,8 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
     
     term1 + term2 + term3 + term2bis + term3bis + term4
   }
-  z_knowing_theta_expectation <- sum(.5 * n * expectations_log_sigma -
-                                       expectations_sigma * map_dbl(1:p, get_E_quadr_form))
+  z_knowing_theta_expectation <- sum(.5 * params$n * expectations_log_sigma -
+                                       expectations_sigma * map_dbl(1:params$p, get_E_quadr_form))
   poisson_log_likelihood <- sum(Y * params$Z$M - exp(params$Z$M + 0.5 * params$Z$S2))
   # Priors terms
   prior_sigma_expectation <- sum((priors$Sigma$A - 1) * expectations_log_sigma - 
@@ -301,12 +279,12 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
                                  priors$Phi$B * expectations_phi)
   prior_delta_expectation <- sum((priors$Delta$A - 1) * expectations_log_delta - 
                                    priors$Delta$B * expectations_delta)
-  prior_eta_expectation <- -0.5 * sum(map_dbl(1:n, function(i){
+  prior_eta_expectation <- -0.5 * sum(map_dbl(1:params$n, function(i){
     sum(params$Eta$M[,i]^2 + diag(params$Eta$Cov[,, i]))
   }))
-  prior_lambda_expectation <- 0.5 * p * sum(cumsum(expectations_log_delta)) +
+  prior_lambda_expectation <- 0.5 * params$p * sum(cumsum(expectations_log_delta)) +
     0.5 * sum(expectations_log_phi) - 
-    0.5 * sum(map_dbl(1:p, function(j){
+    0.5 * sum(map_dbl(1:params$p, function(j){
       sum(cumprod(expectations_delta) * diag(expectations_phi[j, ]) * 
             (diag(params$Lambda$Cov[,, j]) + params$Lambda$M[, j]^2))
     }))
@@ -314,10 +292,10 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
   if(any(X != 0)){ 
     # On considère un prior normal (non lié aux sigmas)
     prior_beta_expectation <- 
-      -0.5 * sum(map_dbl(1:p, function(j){
+      -0.5 * sum(map_dbl(1:params$p, function(j){
         # Expectation of beta'P0 beta
-          sum(priors$Beta$Precision[,,j] * 
-                (params$Beta$Cov[,, j] + diag(params$Beta$M[, j]^2))) -
+        sum(priors$Beta$Precision[,,j] * 
+              (params$Beta$Cov[,, j] + diag(params$Beta$M[, j]^2))) -
           2 * sum(params$Beta$M[, j] * priors$Beta$Precision[,,j] %*% priors$Beta$M[,j])
         
       }))
@@ -348,63 +326,87 @@ get_CAVI <- function(Y,
                      debug = FALSE,
                      get_ELBO_freq = 1){
   p <- ncol(Y); n <- nrow(Y); 
+  # Checking priors
   if(is.null(priors)){
-    stop("We are bayesian guys, please specify a prior")
+    print("A default prior was set, this should be avoided")
+    priors = list(Sigma = list(A = 3, B = 2), 
+                  Phi = list(A = 3/2, B = 3/2),
+                  Delta= list(A = c(5, rep(2, q - 1)), 
+                              B = 1))
+    if(is.null(X)){
+      priors$Beta = list(M = rep(0, ncol(X)),
+                         C = rep(0.01, ncol(X)))
+    }
+    else{
+      priors$Beta = list(M = matrix(0,
+                                    nrow = ncol(X), ncol = p),
+                         Precision = array(diag(0.01, ncol(X)),
+                                           dim = c(ncol(X), ncol(X), p)))
+    }
   }
   if(is.null(updates)){
+    print("As no updates were provided, by default, all unknown are updated")
     updates = c(Lambda = TRUE, Sigma = TRUE,
                 Eta = TRUE, Delta = TRUE, Phi = TRUE, 
                 Beta = TRUE, Z = TRUE)
+  }
+  if(is.null(params)){
+    print("As no initial parameters were fixed, there values is set randomly")
+    if(!is.null(seed)){
+      print(paste("Random seed fixed to", seed))
+      set.seed(seed)
+    }
+    params <- list(Lambda = list(M = matrix(rnorm(p * q),
+                                            nrow = q, ncol = p),
+                                 Cov = array(diag(1, q), 
+                                             dim = c(q, q, p))),
+                   Eta = list(M = matrix(rnorm(n * q), 
+                                         nrow = q, ncol = n),
+                              Cov = array(diag(1, q), 
+                                          dim = c(q, q, n))),
+                   Sigma = list(A = rep(priors$Sigma$A + n / 2, p),
+                                B = runif(p, 1, 5)),
+                   Delta = list(A = priors$Delta$A + 0.5 * p * (q + 1 - (1:q)),
+                                B = runif(q, 1, 10)),
+                   Phi = list(A =  matrix(priors$Phi$A + 0.5, p, q),
+                              B = matrix(runif(p * q, 1, 3), p, q)),
+                   Z = list(M = log(Y + 1),
+                            S2 = matrix(.1, nrow = nrow(Y),
+                                        ncol = ncol(Y)))) 
+    if(is.null(X)){
+      params$Beta = list(M = matrix(0,
+                                    nrow = ncol(X), ncol = p),
+                         Cov = array(diag(0.001, ncol(X)),
+                                     dim = c(ncol(X), ncol(X), p)))
+    }
+    else{
+      params$Beta = list(M = matrix(rnorm(p * ncol(X)),
+                                    nrow = ncol(X), ncol = p),
+                         Cov = array(diag(1, ncol(X)), 
+                                     dim = c(ncol(X), ncol(X), p)))
+    }
   }
   if(is.null(X)){
     updates["Beta"] <- FALSE
     print("As no X is provided, Beta won't be updated")
     X <- matrix(0, nrow = n, ncol = 1)
-    priors$Beta = list(M = rep(0, ncol(X)),
-                       C = rep(0.01, ncol(X)))
-    params$Beta = list(M = matrix(0,
-                                  nrow = ncol(X), ncol = p),
-                             Cov = array(diag(0.001, ncol(X)),
-                                   dim = c(ncol(X), ncol(X), p)))
-
   }
-  F_x <- ncol(X)
+  # Defining reccurrent objects
   XprimeX <- t(X) %*% X
-  if(!is.null(seed)){
-    print(paste("Random seed fixed to", seed))
-    set.seed(seed)
-  }
-  # if(is.null(params)){
-  #   params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
-  #                                Cov = array(diag(1, q), dim = c(q, q, p))),
-  #                  Beta = list(M = matrix(rnorm(F_x * p),
-  #                                         nrow = F_x, ncol = p),
-  #                              Cov = array(diag(1, F_x), 
-  #                                          dim = c(F_x, F_x, p))),
-  #                  Eta = list(M = matrix(rnorm(q * n), q, n),
-  #                             Cov = array(diag(1, q), dim = c(q, q, n))),
-  #                  Sigma = list(A = runif(p, 1, 3),
-  #                               B = runif(p, 1, 3)),
-  #                  Delta = list(A = runif(q, 2, 5) ,
-  #                               B = rep(1, q)),
-  #                  Phi = list(A = matrix(3/2, p, q),
-  #                             B = matrix(3/2, p, q)),
-  #                  Z = list(M = log(Y + 1),
-  #                           S2 = matrix(.1, nrow = nrow(Y),
-  #                                       ncol = ncol(Y))))
-  # }
+  # Adding constant to params
+  params$n <- nrow(Y)
+  params$p <- ncol(Y)
+  params$q <- q
+  params$F_x <- ncol(X)
   
-  # Propagation
-  # progess_bar <- txtProgressBar(min = 0, max = n_steps)
   current_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                            X = X, XprimeX = XprimeX)
   ELBOS <- data.frame(iteration = 0, 
                       ELBO = current_ELBO)
-  # print(X)
-  # print(params$Beta$M)
-  
+
+  my_progress_bar <- progress_bar$new(total=n_steps)
   for(step_ in 1:n_steps){
-    print(step_)
+    my_progress_bar$tick()
     if(updates["Z"]){
       params$Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
       if(debug){

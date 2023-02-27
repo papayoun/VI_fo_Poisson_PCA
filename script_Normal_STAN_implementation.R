@@ -4,12 +4,12 @@ library(mixtools)
 library(abind) # To gather results together
 library(parallel) # For some parallel computations
 library(rstan)
-source("utils_PPCA_generating_data.R") # For true values
+source("utils_generating_data.R") # For true values
 
 
 # Data --------------------------------------------------------------------
 
-Y <- read.table("data_PPCA.txt", sep = ";") %>%
+Y <- read.table("data_sets/synthetic/data_Y_Normal_PPCA.txt", sep = ";") %>%
   as.matrix()
 n <- nrow(Y); p <- ncol(Y)
 q_max <- ncol(Y)

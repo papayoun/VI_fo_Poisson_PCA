@@ -1,0 +1,89 @@
+
+# Cleaning environment ----------------------------------------------------
+
+rm(list = ls())
+
+
+# Librairies --------------------------------------------------------------
+
+library(tidyverse)
+
+# Problem data ------------------------------------------------------------
+
+n <- 100
+p <- 10
+q_true <- 3
+F_x <- 3
+
+# Generating latent variables ---------------------------------------------
+
+sigma_m2s_true <- seq(10, 100, length.out = p)
+sigma2s_true <- 1 / sigma_m2s_true 
+
+# Residuals ---------------------------------------------------------------
+
+set.seed(123)
+
+residus <- sapply(sigma2s_true, function(s2) rnorm(n, 0, sqrt(s2)))
+
+# Latent variables --------------------------------------------------------
+
+set.seed(1234)
+Eta_true <- matrix(sample(-1:1, size = n * q_true, replace = TRUE),
+                   nrow = n, ncol = q_true) 
+
+# Loadings ----------------------------------------------------------------
+
+set.seed(12345)
+Lambda_true <- matrix(sample(-1:1, size = p * q_true, replace = TRUE),
+                 nrow = p, ncol = q_true)
+
+# Fixed effects----------------------------------------------------------------
+
+X <- cbind(1,
+           matrix(round(rnorm(n * (F_x - 1)), 2),
+                  nrow = n, ncol = F_x - 1))
+
+beta_true <- 0.3 * matrix(sample(-1:1, size = p * F_x, replace = TRUE),
+                          nrow = F_x, ncol = p)
+
+# Normal PPCA -------------------------------------------------------------
+
+# Without fixed
+
+Y <- Eta_true %*% t(Lambda_true) + residus
+write.table(round(Y, 4), file = "data_sets/synthetic/data_Y_Normal_PPCA.txt", 
+            sep = ";", col.names = FALSE,
+            row.names = FALSE)
+
+# With fixed
+
+write.table(round(Y + X %*% beta_true, 4), file = "data_sets/synthetic/data_Y_Normal_PPCA_with_covariates.txt", 
+            sep = ";", col.names = FALSE,
+            row.names = FALSE)
+
+write.table(X, file = "data_sets/synthetic/data_covariates_Normal_PPCA.txt", 
+            sep = ";", col.names = FALSE,
+            row.names = FALSE)
+
+
+# Poisson PPCA ------------------------------------------------------------
+
+# Without fixed
+
+Y <- apply(Eta_true %*% t(Lambda_true) + residus, 2,
+           function(z) rpois(length(z), exp(z)))
+write.table(Y, file = "data_sets/synthetic/data_Y_Poisson_PPCA.txt", 
+            sep = ";", col.names = FALSE,
+            row.names = FALSE)
+
+# With fixed
+
+Y <- apply(X %*% beta_true + Eta_true %*% t(Lambda_true) + residus, 2,
+           function(z) rpois(length(z), exp(z)))
+write.table(Y, file = "data_sets/synthetic/data_Y_Poisson_PPCA_with_covariates.txt", 
+            sep = ";", col.names = FALSE,
+            row.names = FALSE)
+write.table(X, file = "data_sets/synthetic/data_covariates_Poisson_PPCA.txt", 
+            sep = ";", col.names = FALSE,
+            row.names = FALSE)

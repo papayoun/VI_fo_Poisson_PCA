@@ -3,18 +3,18 @@ library(tidyverse)
 library(mixtools)
 library(abind) # To gather results together
 library(parallel) # For some parallel computations
-source("utils_PPCA_generating_data.R") # For true values
+source("utils_generating_data.R") # For true values
 
 
 # Data --------------------------------------------------------------------
 
-Y <- read.table("data_PPCA.txt", sep = ";") %>%
+Y <- read.table("data_sets/synthetic/data_Y_Normal_PPCA.txt", sep = ";") %>%
   as.matrix()
 
 # VI inference functions -----------------------------------------------------
 
-source("utils_PPCA_VI_function.R")
-source("utils_PPCA_gibbs_function.R")
+source("utils_Normal_PPCA_VI_functions.R")
+source("utils_Normal_PPCA_GIBBS_functions.R")
 
 # VI parameters
 

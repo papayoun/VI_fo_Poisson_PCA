@@ -4,7 +4,7 @@
 library(tidyverse) # Pour la manipulation des données
 library(PLNmodels) # Pour le modèle poisson log normal
 library(future) # Pour calcul sur plusieurs processeurs
-source("utils_Poisson_PPCA_VI_function.R")
+source("utils_Poisson_PPCA_VI_functions.R")
 
 # Chargement donnees brutes -----------------------------------------------
 

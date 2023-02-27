@@ -2,15 +2,15 @@ rm(list = ls())
 library(tidyverse)
 library(abind) # To gather results together
 library(parallel) # For some parallel computations
-source("utils_Poisson_PPCA_generating_data.R") # For true values
-source("utils_Poisson_PPCA_VI_function.R") # For true values
+source("utils_generating_data.R") # For true values
+source("utils_Poisson_PPCA_VI_functions.R") 
 
 
 # Data --------------------------------------------------------------------
 
-Y <- read.table("data_Poisson_PPCA.txt", sep = ";") %>%
+Y <- read.table("data_sets/synthetic/data_Y_Poisson_PPCA.txt", sep = ";") %>%
   as.matrix()
-X_data <- read.table("fixed_Poisson_PPCA.txt", sep = ";") %>%
+X <- read.table("data_sets/synthetic/data_Y_Poisson_PPCA.txt", sep = ";") %>%
   as.matrix()
 
 
