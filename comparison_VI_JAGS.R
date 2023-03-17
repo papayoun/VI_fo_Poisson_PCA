@@ -34,8 +34,8 @@ beta_results_VI <- map_dfr(1:10,
         mean <- result_VI$params$Beta$M[,i]
         cov <- result_VI$params$Beta$Cov[,,i]
         rmvnorm(1800, mean, cov) %>% 
-          matrix(dimnames = list(NULL, paste0("beta[", i, ",", 1:2, "]")),
-                 ncol = 2) %>% 
+          matrix(dimnames = list(NULL, paste0("beta[", i, ",", 1:3, "]")),
+                 ncol = 3) %>% 
           as.data.frame() %>% 
           rowid_to_column(var = "Iteration") %>% 
           pivot_longer(-Iteration,
@@ -44,19 +44,26 @@ beta_results_VI <- map_dfr(1:10,
       }) %>% 
   mutate(method = "VI")
 
+truebetas= data_frame(Parameter=map(1:10, function(i) {paste0("beta[", i, ",", 1:3, "]")}) %>% unlist(), intercept= as.vector(beta_true))
+
 bind_rows(beta_results_VI,
           beta_results_jags) %>% 
   ggplot() + 
   aes(x = value) +
   geom_density(aes(color = method)) +
+  geom_point(data=truebetas,mapping= aes(x=intercept, y=0))+
   facet_wrap(~Parameter, ncol = 2)
+
 
 bind_rows(beta_results_VI,
           beta_results_jags) %>% 
   filter(str_detect(Parameter, "beta\\[2")) %>% 
   pivot_wider(values_from = "value", names_from = "Parameter") %>% 
   ggplot(aes(x = `beta[2,1]`, y = `beta[2,2]`)) +
-  geom_point(aes(color = method))
+  geom_point(aes(color = method))+
+  geom_point(data=truebetas %>% 
+               filter(str_detect(Parameter, "beta\\[2")) %>% 
+               pivot_wider(values_from = "intercept", names_from = "Parameter"), color="black",shape= 18, size=10)
 
 # loading results ---------------------------------------------------------
 
@@ -65,6 +72,9 @@ sigma_results_jags <- filter(result_jags,
                             str_detect(Parameter, "preciE")) %>%
   mutate(Parameter = droplevels(Parameter))  %>% 
   mutate(method = "JAGS")
+
+
+
 sigma_results_VI <- map_dfr(1:10, 
                            function(i){
                              A <- result_VI$params$Sigma$A[i]
@@ -79,6 +89,11 @@ sigma_results_VI <- map_dfr(1:10,
                                             values_to = "value")
                            }) %>% 
   mutate(method = "VI")
+
+bind_rows(sigma_results_VI ,
+          sigma_results_jags) %>% group_by(Parameter, method) %>% summarise(msigmamoins2= mean(value))
+sigma_m2s_true 
+
 bind_rows(sigma_results_VI,
           sigma_results_jags) %>% 
   ggplot() + 
@@ -98,4 +113,10 @@ lambda_results_jags <- filter(result_jags,
   mutate(method = "JAGS")
 lambda_results_jags %>% 
   group_by(Parameter) %>% 
-  summarise(m = mean(value))
+  summarise(Lambda_jags_mean = mean(value)) %>% pull() %>% matrix(nc=7,byrow = T)->Lambda_jags_mean
+Lambda_true
+Lambda_jags_mean 
+abs(Lambda_jags_mean)>0.25
+(abs(Lambda_jags_mean)>0.25)*round(Lambda_jags_mean,3)
+Lambda_true
+
