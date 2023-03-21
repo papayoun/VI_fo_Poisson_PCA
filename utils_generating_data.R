@@ -10,14 +10,14 @@ library(tidyverse)
 
 # Problem data ------------------------------------------------------------
 
-n <- 30
+n <- 1000
 p <- 4
-q_true <- 3
-F_x <- 2
+q_true <- 2
+F_x <- 1
 
 # Generating latent variables ---------------------------------------------
 
-sigma_m2s_true <- seq(10, 100, length.out = p)
+sigma_m2s_true <- seq(100, 100, length.out = p)
 sigma2s_true <- 1 / sigma_m2s_true 
 
 # Residuals ---------------------------------------------------------------
@@ -34,7 +34,7 @@ Eta_true <- matrix(sample(-1:1, size = n * q_true, replace = TRUE),
 
 # Loadings ----------------------------------------------------------------
 
-set.seed(12345)
+set.seed(123)
 Lambda_true <- matrix(sample(-1:1, size = p * q_true, replace = TRUE),
                  nrow = p, ncol = q_true)
 
@@ -94,3 +94,4 @@ true_params <- list(beta = beta_true,
                     sigma2s = sigma2s_true)
 saveRDS(true_params, file = "experiment_params.rds")
 rm(list = ls())
+

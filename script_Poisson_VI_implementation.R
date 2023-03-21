@@ -2,8 +2,7 @@ rm(list = ls())
 library(tidyverse)
 library(abind) # To gather results together
 library(parallel) # For some parallel computations
-# library(pacman) # For progress bar
-# source("utils_generating_data.R") # For true values
+library(pacman) # For progress bar
 # library(pacman) # For progress bar (ne marche pas... ou travail non fini par celui qui l'a ajouté!
 # Du coup j'ai bricolé mon propre progress bar Eric)
 source("utils_generating_data.R") # Creates experiment_params.rds
@@ -23,23 +22,27 @@ source("utils_Poisson_PPCA_VI_functions.R")
 
 result <- get_CAVI(Y = Y, 
                    X = X,
-                   q = ncol(Y) - 1,
+                   q = max(ncol(Y) - 1, 1),
                    seed = 1, 
                    n_steps = 50, 
-                   debug = FALSE)
+                   debug = FALSE, 
+                   updates = c(Lambda = TRUE, Sigma = TRUE,
+                               Eta = TRUE, Delta = TRUE, Phi = TRUE, 
+                               Beta = TRUE, Z = TRUE),
+                   get_ELBO_freq = 10)
 result_VI <- result
 save(result_VI, file = "result_VI.RData")
 
 # Beta ? ------------------------------------------------------------------
 
 true_params$beta
-round(result$params$Beta$M, 2)
+round(result$params$Beta$M, 12)
 
 # Lambda? -----------------------------------------------------------------
 
 
 true_params$Lambda %*% t(true_params$Lambda)
-round(t(result$params$Lambda$M) %*% result$params$Lambda$M, 2)
+round(t(result$params$Lambda$M) %*% result$params$Lambda$M, 6)
 
 
 # Eta x Lambda ? ----------------------------------------------------------
