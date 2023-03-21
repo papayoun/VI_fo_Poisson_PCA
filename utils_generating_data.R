@@ -10,10 +10,10 @@ library(tidyverse)
 
 # Problem data ------------------------------------------------------------
 
-n <- 100
-p <- 10
+n <- 30
+p <- 4
 q_true <- 3
-F_x <- 3
+F_x <- 2
 
 # Generating latent variables ---------------------------------------------
 
@@ -87,3 +87,10 @@ write.table(Y, file = "data_sets/synthetic/data_Y_Poisson_PPCA_with_covariates.t
 write.table(X, file = "data_sets/synthetic/data_covariates_Poisson_PPCA.txt", 
             sep = ";", col.names = FALSE,
             row.names = FALSE)
+
+true_params <- list(beta = beta_true,
+                    Eta = Eta_true,
+                    Lambda = Lambda_true,
+                    sigma2s = sigma2s_true)
+saveRDS(true_params, file = "experiment_params.rds")
+rm(list = ls())

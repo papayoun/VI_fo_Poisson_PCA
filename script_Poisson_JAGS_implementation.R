@@ -1,6 +1,7 @@
 rm(list = ls())
 library(ggmcmc)
 library(rjags)
+source("utils_generating_data.R") # Creates experiment_params.rds
 
 # Data --------------------------------------------------------------------
 
@@ -64,7 +65,7 @@ for(j in 1:p){
 data_for_JAGS <- list(
   n = dim(Y)[1],
   p = dim(Y)[2],
-  q = 7,
+  q = dim(Y)[2] - 1,
   Y = Y,
   X = X,
   F_x = ncol(X)
@@ -72,7 +73,7 @@ data_for_JAGS <- list(
 
 n.adapt = 300
 burnin = 300
-n.iter = burnin * 2
+n.iter = burnin * 3
 thin = 1
 jm <- jags.model(
   file = textConnection(modelString),
@@ -83,7 +84,7 @@ jm <- jags.model(
 update(jm, burnin)
 jsamples <- coda.samples(
   model = jm,
-  variable.names = c("beta","lambda","preciE"),
+  variable.names = c("beta","lambda","preciE", "eta"),
   n.iter = n.iter,
   thin = thin
 )

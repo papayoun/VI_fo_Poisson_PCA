@@ -10,7 +10,7 @@ source("utils_generating_data.R") # For true values
 
 Y <- read.table("data_sets/synthetic/data_Y_Normal_PPCA.txt", sep = ";") %>%
   as.matrix()
-
+true_params <- readRDS("experiment_params.rds")
 # VI inference functions -----------------------------------------------------
 
 source("utils_Normal_PPCA_VI_functions.R")
@@ -19,7 +19,7 @@ source("utils_Normal_PPCA_GIBBS_functions.R")
 # VI parameters
 
 
-p <- ncol(Y); q_true <- ncol(Eta_true); n <- nrow(Y)
+p <- ncol(Y); q_true <- ncol(true_params$Eta); n <- nrow(Y)
 
 q_guess <- 7
 # on ne prend pas le "vrai" q!
@@ -62,7 +62,7 @@ best_index <- map_dbl(all_results,
   which.max()
 
 map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
-  filter(iteration > 100) %>% 
+  filter(iteration > 10) %>% 
   ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
   geom_line()
 
@@ -158,18 +158,48 @@ LL_t_gibbs <- mclapply(1:n_samples, function(i){
 LL_t_hat_gibbs_df <- format_array(LL_t_gibbs, "LL_t") 
 LL_t_hat_gibbs_df <-LL_t_hat_gibbs_df %>% mutate(method="Gibbs")
 #verité et les deux methode
-LL_t_true <- Lambda_true %*% t(Lambda_true)
+LL_t_true <- true_params$Lambda %*% t(true_params$Lambda)
 LL_t_hat_df <-LL_t_hat_gibbs_df %>% bind_rows(LL_t_hat_VI_df)
 # une densité par parametre
 ggplot(LL_t_hat_df) + 
   aes(x = Estimate, color=method) +
   geom_density() +
-  facet_wrap(~Parameter, nrow =  nrow(Lambda_true), labeller = label_parsed,
+  facet_wrap(~Parameter, nrow =  nrow(true_params$Lambda), labeller = label_parsed,
              scales = "free_y") +
   geom_vline(data = tibble(Parameter = unique(LL_t_hat_df$Parameter),
                            Truth = as.numeric(t(LL_t_true))),
              aes(xintercept = Truth),
              color = "black")
+sapply(1:(dim(result_gibbs$Lambda)[3]),
+       function(i) apply(result_gibbs$Lambda[,,i], 2, var)) %>% 
+  t() %>% 
+  boxplot()
+apply(result_VI_coef$Lambda$M, 1 , var)
+apply(result_gibbs$Lambda, MARGIN = c(2, 3), var)
+
+
+# Check for Lambda Eta ----------------------------------------------------
+
+n_samples_VI <- dim(result_VI$Lambda)[3]
+n_samples_Gibbs <- dim(result_gibbs$Lambda)[3]
+Lambda_Eta_VI <- lapply(1:n_samples_VI,
+                        function(i){
+                          result_VI$Eta[,,i] %*% t(result_VI$Lambda[,,i])
+                        })
+Lambda_Eta_Gibbs <- lapply(1:n_samples_Gibbs,
+                        function(i){
+                          result_gibbs$Eta[,,i] %*% t(result_gibbs$Lambda[,,i])
+                        })
+site <- 1
+species <- 1
+
+tibble(value = map_dbl(Lambda_Eta_VI, function(x) x[site, species]),
+       method = "VI") %>% 
+  bind_rows(tibble(value = map_dbl(Lambda_Eta_Gibbs, function(x) x[site, species]),
+                   method = "Gibbs")) %>% 
+  ggplot(aes(x = value, color = method)) +
+  geom_density() +
+  geom_vline(xintercept = Y[site, species])
 
 Lambda_hat_gibbs_df <- format_array(result_gibbs$Lambda,
                                     "Lambda") %>% mutate(method="Gibbs")

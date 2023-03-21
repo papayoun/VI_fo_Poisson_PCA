@@ -11,3 +11,4 @@ example_*.pdf
 *.synctex.gz
 
 *.RData
+*.rds

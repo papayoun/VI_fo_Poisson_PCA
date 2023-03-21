@@ -400,10 +400,27 @@ get_CAVI <- function(Y,
                            X = X, XprimeX = XprimeX)
   ELBOS <- data.frame(iteration = 0, 
                       ELBO = current_ELBO)
-  pacman::p_load(progress)
-  my_progress_bar <- progress_bar$new(total=n_steps)
+  # pacman::p_load(progress)
+  # my_progress_bar <- progress_bar$new(total=n_steps)
+  
+  # my_progress_bar <- progress_bar$new(total=n_steps)
+  # options(width = 80)
+  extra <- nchar('||100%')
+  width <- options()$width
   for(step_ in 1:n_steps){
-    my_progress_bar$tick()
+    
+    #   my_progress_bar$tick()
+    if((step_ %% round(n_steps/10))==0){
+      stepbar <- round(step_ / n_steps * (width - extra))
+      text <- sprintf('|%s%s|% 3s%%', strrep('=', stepbar),
+                      strrep(' ', width - stepbar - extra), round(step_ / n_steps * 100))
+      cat(text)
+      cat('\n')
+      # Sys.sleep(0.05)
+      # cat(if (step_ == n_steps) '\n' else '\014')
+      #   my_progress_bar$tick()
+    }
+    
     if(updates["Z"]){
       params$Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
       if(debug){
