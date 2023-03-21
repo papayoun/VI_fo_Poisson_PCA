@@ -12,3 +12,4 @@ example_*.pdf
 
 *.RData
 *.rds
+data_sets/synthetic/data*.txt
