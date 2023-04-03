@@ -12,8 +12,9 @@ Y <- read.table("data_sets/synthetic/data_Y_Normal_PPCA_with_covariates.txt", se
   as.matrix()
 X <- read.table("data_sets/synthetic/data_covariates_Normal_PPCA.txt", sep = ";") %>%
   as.matrix()
+true_params <- readRDS("experiment_params.rds")
 F_x <- ncol(X)
-XprimeX=t(X)%*%X
+XprimeX = t(X) %*% X
 
 # VI inference functions -----------------------------------------------------
 
@@ -22,8 +23,9 @@ source("utils_Normal_PPCA_VI_functions.R")
 # VI parameters
 
 
-p <- ncol(Y); q_true <- ncol(Eta_true); n <- nrow(Y)
-q <- 7
+p <- ncol(Y); 
+n <- nrow(Y)
+q <- ncol(Y) - 1
 # on ne prend pas le "vrai" q!
 priors <- list(Sigma = list(A = 3, B = 2), 
                Phi = list(A = 3/2, B = 3/2),
@@ -93,3 +95,21 @@ map_dfr(all_results, "ELBOS", .id = "Replicate") %>%
 # t(best$Lambda$M)
 # Lambda_true
 
+(t(result$params$Lambda$M) %*% result$params$Lambda$M + 
+  diag(result$params$Sigma$B / result$params$Sigma$A)) %>% 
+  cov2cor() %>% 
+  round(3)
+(true_params$Lambda %*% t(true_params$Lambda) + diag(true_params$sigma2s)) %>% 
+  cov2cor() %>% 
+  round(3)
+
+result$params$Beta$M
+true_params$beta
+
+true_params$Eta %*% t(true_params$Lambda) %>% 
+  round(2) %>% 
+  head()
+
+t(result$params$Eta$M) %*% result$params$Lambda$M %>% 
+  round(2) %>% 
+  head()

@@ -10,14 +10,14 @@ library(tidyverse)
 
 # Problem data ------------------------------------------------------------
 
-n <- 1000
-p <- 4
-q_true <- 2
-F_x <- 1
+n <- 5000
+p <- 20
+q_true <- 5
+F_x <- 2
 
 # Generating latent variables ---------------------------------------------
 
-sigma_m2s_true <- seq(100, 100, length.out = p)
+sigma_m2s_true <- seq(100000, 100000, length.out = p)
 sigma2s_true <- 1 / sigma_m2s_true 
 
 # Residuals ---------------------------------------------------------------
@@ -31,13 +31,17 @@ residus <- sapply(sigma2s_true, function(s2) rnorm(n, 0, sqrt(s2)))
 set.seed(1234)
 Eta_true <- matrix(sample(-1:1, size = n * q_true, replace = TRUE),
                    nrow = n, ncol = q_true) 
-
+Eta_true <- matrix(rnorm(n * q_true),
+                   nrow = n, ncol = q_true) 
 # Loadings ----------------------------------------------------------------
 
 set.seed(123)
 Lambda_true <- matrix(sample(-1:1, size = p * q_true, replace = TRUE),
                  nrow = p, ncol = q_true)
-
+Lambda_true <- matrix(round(rnorm(p * q_true), 3),
+                   nrow = p, ncol = q_true) %>% 
+  svd() %>% 
+  {.$u * 2}
 # Fixed effects----------------------------------------------------------------
 
 X <- cbind(1,
@@ -45,8 +49,9 @@ X <- cbind(1,
                   nrow = n, ncol = F_x - 1))
 
 beta_true <- 0.3 * matrix(sample(-1:1, size = p * F_x, replace = TRUE),
-                          nrow = F_x, ncol = p)
-
+                          nrow = F_x, ncol = p) +
+  rbind(rep(2, p),
+        matrix(0, nrow = F_x - 1, ncol = p))
 # Normal PPCA -------------------------------------------------------------
 
 # Without fixed

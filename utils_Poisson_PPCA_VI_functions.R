@@ -423,19 +423,7 @@ get_CAVI <- function(Y,
     #   # cat(if (step_ == n_steps) '\n' else '\014')
     #   #   my_progress_bar$tick()
     # }
-    
-    if(updates["Z"]){
-      params$Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
-      if(debug){
-        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
-                             X = X, XprimeX = XprimeX)
-        if(new_ELBO < current_ELBO){
-          print(new_ELBO - current_ELBO)
-          print(paste("Problem at iteration", step_, "after updating Z"))
-        }
-        current_ELBO <- new_ELBO
-      }
-    }
+
     # Lambdas
     if(updates["Lambda"]){
       params$Lambda <- get_update_Poisson_VI_Lambda(params = params, X = X)
@@ -513,6 +501,18 @@ get_CAVI <- function(Y,
         current_ELBO <- new_ELBO
       }
     }
+    if(updates["Z"]){
+      params$Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
+      if(debug){
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print(new_ELBO - current_ELBO)
+          print(paste("Problem at iteration", step_, "after updating Z"))
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
     if((n_steps %% get_ELBO_freq) == 0){
       ELBOS <- bind_rows(ELBOS,
                          data.frame(iteration = step_,
@@ -556,7 +556,7 @@ format_array <- function(array_, param_name, row_indexes = NULL){
               setNames(paste0("col", 1:dim2)) %>% 
               mutate(iteration = l,
                      row = row_indexes) %>% 
-              pivot_longer(-c("iteration", "row"), 
+              pivot_longer(-c("true_paramsiteration", "row"), 
                            names_to = "column",
                            names_prefix = "col",
                            values_to = "Estimate") %>% 

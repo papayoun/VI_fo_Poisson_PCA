@@ -1,4 +1,4 @@
-
+rm(list = ls())
 # Librairies --------------------------------------------------------------
 
 library(tidyverse) # Pour la manipulation des données
@@ -7,39 +7,24 @@ library(future) # Pour calcul sur plusieurs processeurs
 library(tidyverse)
 library(abind) # To gather results together
 library(parallel)
+source("utils_generating_data.R") # Creates experiment_params.rds
 source("utils_Poisson_PPCA_VI_functions.R")
 
-# Chargement donnees brutes -----------------------------------------------
+# Chargement donnees simulees -----------------------------------------------
 
 
-abundance_raw <- read.table("data_sets/borneo/data_abundance.txt",
-                            sep = ";", header = TRUE)
-soil_raw <- read.table("data_sets/borneo/data_soil_characteristics_after_pca.txt",
-                       sep = ";", header = TRUE)
+Y <- read.table("data_sets/synthetic/data_Y_Poisson_PPCA_with_covariates.txt", sep = ";") %>%
+  as.matrix()
+X <- read.table("data_sets/synthetic/data_covariates_Poisson_PPCA.txt", sep = ";") %>%
+  as.matrix()
+true_params <- readRDS("experiment_params.rds")
+
 
 
 # Transformation pour la librairie ----------------------------------------
 
-abundance_pln <- column_to_rownames(abundance_raw, "Site")
-soil_pln <- dplyr::select(soil_raw, -Sol) %>% 
-  column_to_rownames("Site")
-pln_data <- prepare_data(counts = abundance_pln, covariates = soil_pln,
+pln_data <- prepare_data(counts = Y, covariates = X[,-1,drop = FALSE],
                          offset = "none")
-
-
-# -------------------------------------------------------------------------
-
-Y_VIPCA <- abundance_raw %>% 
-  filter(Site %in% soil_raw$Site) %>% 
-  arrange(Site) %>% 
-  select(-Site) %>% 
-  as.matrix()
-X_VIPCA <- soil_raw %>% 
-  arrange(Site) %>% 
-  select(-Site, -Sol) %>% 
-  mutate(Intercept = 1) %>% 
-  relocate(Intercept) %>% 
-  as.matrix()
 
 # PLN PCA -----------------------------------------------------------------
 
@@ -48,26 +33,30 @@ X_VIPCA <- soil_raw %>%
 # https://pln-team.github.io/PLNmodels/articles/PLNnetwork.html pour la partie réseau
 
 # plan(multisession, workers = 3)
-# PCA_models <- PLNPCA(
-#   Abundance ~ Z1 + Z2 + Z3 + Z4,
-#   data  = pln_data, 
-#   ranks = 5
-# )
+PCA_models <- PLNPCA(
+  Abundance ~ V2,
+  data  = pln_data,
+  ranks = 1:10
+)
+
+plot(PCA_models)
+PLN_res <- PLNmodels::getBestModel(PCA_models, crit = "BIC")
+plot(PLN_res)
 
 
 # VI PPCA -----------------------------------------------------------------
 
-result <- get_CAVI(Y=Y_VIPCA, 
-                   X = X_VIPCA, 
-                   q = 5,
+result_VI <- get_CAVI(Y = Y, 
+                   X = X, 
+                   q = 10,
                    seed = 1,
-n_steps = 50, 
-debug = FALSE)
+                   n_steps = 50, 
+                   debug = FALSE)
 
-plot(result$ELBOS[-c(1:2),])
-result$params$Lambda$M
+plot(result_VI$ELBOS[-c(1:2),])
+result_VI$params$Lambda$M
 
-apply(result$params$Lambda$M,1,var)
+apply(result_VI$params$Lambda$M,1,var)
 
 all_results <- lapply(1:4,
                       FUN = function(i)
