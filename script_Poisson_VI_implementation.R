@@ -3,8 +3,6 @@ library(tidyverse)
 library(abind) # To gather results together
 library(parallel) # For some parallel computations
 library(pacman) # For progress bar
-# library(pacman) # For progress bar (ne marche pas... ou travail non fini par celui qui l'a ajouté!
-# Du coup j'ai bricolé mon propre progress bar Eric)
 source("utils_generating_data.R") # Creates experiment_params.rds
 
 
@@ -23,9 +21,9 @@ source("utils_Poisson_PPCA_VI_functions.R")
 # p <- ncol(Y)
 # q <- max(1, ncol(Y) - 1)
 # n <- nrow(Y)
-# priors = list(Sigma = list(A = 3, B = 2), 
+# priors = list(Sigma = list(A = 3, B = 2),
 #               Phi = list(A = 3/2, B = 3/2),
-#               Delta= list(A = rep(3, q), 
+#               Delta= list(A = rep(3, q),
 #                           B = 1),
 #               Beta = list(M = matrix(0,
 #                                      nrow = ncol(X), ncol = p),
@@ -47,15 +45,17 @@ save(result_VI, file = "result_VI.RData")
 # Beta ? ------------------------------------------------------------------
 
 true_params$beta
-round(result_VI$params$Beta$M, 12)
+round(result_VI$params$Beta$M, 2)
 result_VI$params$Beta$Cov
 # Lambda? -----------------------------------------------------------------
 
+(true_params$Lambda %*% t(true_params$Lambda)) %>% .[1:5,1:5] 
+(t(result_VI$params$Lambda$M) %*% result_VI$params$Lambda$M)%>% .[1:5,1:5]
 
 true_params$Lambda %*% t(true_params$Lambda) %>% 
-  cov2cor()
+  cov2cor()%>% .[1:5,1:5]
 (t(result_VI$params$Lambda$M) %*% result_VI$params$Lambda$M) %>% 
-  cov2cor()
+  cov2cor()%>% .[1:5,1:5]
 
 # Eta x Lambda ? ----------------------------------------------------------
 
@@ -66,15 +66,21 @@ round(t(result_VI$params$Eta$M) %*% result_VI$params$Lambda$M, 2) %>%
 
 (round(true_params$Lambda %*% t(true_params$Lambda), 3) +
     diag(true_params$sigma2s)) %>% 
-  cov2cor()
+  cov2cor()%>% .[1:5,1:5]
 (round(t(result_VI$params$Lambda$M) %*% result_VI$params$Lambda$M, 3) +
     diag(result_VI$params$Sigma$B / result_VI$params$Sigma$A)) %>% 
-  cov2cor()
+  cov2cor()%>% .[1:5,1:5]
 
 range(result_VI$params$Z$M - X %*% result_VI$params$Beta$M)
 
 plot(result_VI$ELBOS[-c(1:2),])
 result_VI$params$Lambda$M
+result_VI$params$Lambda$M %>% apply(1,var) %>% plot()
+
+((result_VI$params$Sigma$A)/(result_VI$params$Sigma$B))^-0.5
+true_params$sigma2s
+((result_VI$params$Sigma$A)/(result_VI$params$Sigma$B))^-0.5%>% plot()
+
 
 all_results <- lapply(1:4,
                       FUN = function(i)
@@ -83,7 +89,7 @@ all_results <- lapply(1:4,
                                  X = X,
                                  q = 7,
                                  seed = i, 
-                                 n_steps = 150, 
+                                 n_steps = 350, 
                                  debug = FALSE)
 )
 
