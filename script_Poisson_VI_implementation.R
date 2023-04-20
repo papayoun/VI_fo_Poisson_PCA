@@ -29,12 +29,22 @@ source("utils_Poisson_PPCA_VI_functions.R")
 #                                      nrow = ncol(X), ncol = p),
 #                           Precision = array(diag(0.01, ncol(X)),
 #                                             dim = c(ncol(X), ncol(X), p))))
+
+
 result_VI <- get_CAVI(Y = Y, 
                       X = X,
-                      q = 7,
+                      q = ncol(true_params$Lambda),
                       seed = 123, 
-                      n_steps = 30, 
+                      n_steps = 60, 
                       debug = FALSE, 
+                      # priors = list(Sigma = list(A = 3, B = 2), 
+                      #               Phi = list(A = 3/2, B = 3/2),
+                      #               Delta = list(A = rep(3, ncol(true_params$Lambda)), 
+                      #                            B = 1),
+                      #               Beta = list(M = matrix(0,
+                      #                                      nrow = ncol(X), ncol = ncol(Y)),
+                      #                           Precision = array(diag(0.01, ncol(X)),
+                      #                                             dim = c(ncol(X), ncol(X), ncol(Y))))),
                       updates = c(Lambda = TRUE, Sigma = TRUE,
                                   Eta = TRUE, Delta = TRUE, Phi = TRUE, 
                                   Beta = TRUE, Z = TRUE),
@@ -42,6 +52,14 @@ result_VI <- get_CAVI(Y = Y,
 plot(result_VI$ELBOS[-c(1:2),])
 save(result_VI, file = "result_VI.RData")
 
+Z_predict <- X %*% result_VI$params$Beta$M + 
+  t(result_VI$params$Eta$M) %*% result_VI$params$Lambda$M
+Z_predict %>% round(1) %>% head()
+(X %*% true_params$beta + true_params$Eta %*% t(true_params$Lambda)) %>% 
+  round(1) %>% 
+  head()
+
+var_Z <- 
 # Beta ? ------------------------------------------------------------------
 
 true_params$beta
