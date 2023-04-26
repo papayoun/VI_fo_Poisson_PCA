@@ -147,6 +147,56 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
                    ncol = params$p))
 }
 
+get_update_Poisson_amortized_VI_Z <- function(X, params){
+  target_function <- function(Y, encoder, X, M, A, B) {
+    # i de 1 à n, j de 1 à p
+    res = 0
+    for(i in 1:params$n){
+    m_i = encoder(X)$M[i]
+    s2_i = encoder(X)$S2[i]
+    y_i = Y[i]
+    M_i = M[i]
+    res = res + y_i * m_i - exp(m_i + 0.5 * s2_i)  - # Likelihood term 
+      0.5 * A / B * (m_i^2 + s2_i - 2 * m_i * M_i) + 
+      0.5 * log(s2_i)
+    }# Variational entropy
+    return(torch_sum(-res)) # Return the negative results for optimization
+  }
+  # Matrix of prior expectations for Z
+  prior_means <- X %*% params$Beta$M + t(params$Eta$M) %*% params$Lambda$M
+  A <- params$Sigma$A
+  B <- params$Sigma$B
+  m_start <- params$encoder(X)$M
+  s2_start <- params$encoder(X)$S2
+  colnames(m_start) = NULL
+  target = lapply(1:params$n, target_function)
+  index_matrix <- expand.grid(i = 1:params$n,
+                              j = 1:params$p)
+  optim_results <- parallel::mcmapply(index_matrix[, "i"], 
+                                      index_matrix[, "j"],
+                                      FUN = function(i, j){
+                                        Opt <- optim(
+                                          par = c(m_start[i, j], s2_start[i, j]),
+                                          fn = target_function,
+                                          y_ij = Y[i, j],
+                                          A_j = A[j],
+                                          B_j = B[j],
+                                          M_ij = prior_means[i,j],
+                                          method = "L-BFGS-B",
+                                          lower = c(-Inf, 1e-10),
+                                          upper = c(Inf, 100)
+                                        )
+                                        c(mean = Opt$par[1], var = Opt$par[2])
+                                      },
+                                      mc.cores = parallel::detectCores() - 2,
+                                      SIMPLIFY = TRUE)
+  list(M = matrix(optim_results["mean", ],
+                  nrow = params$n,
+                  ncol = params$p),
+       S2 = matrix(optim_results["var", ],
+                   nrow = params$n,
+                   ncol = params$p))
+}
 
 
 
