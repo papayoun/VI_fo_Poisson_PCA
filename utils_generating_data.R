@@ -10,14 +10,14 @@ library(tidyverse)
 
 # Problem data ------------------------------------------------------------
 
-n <- 100
-p <- 15
+n <- 2000
+p <- 10
 q_true <- 4
 F_x <- 2
 
 # Generating latent variables ---------------------------------------------
 
-sigma_m2s_true <- seq(100000, 100000, length.out = p)
+sigma_m2s_true <- seq(5, 10, length.out = p)
 sigma2s_true <- 1 / sigma_m2s_true 
 
 # Residuals ---------------------------------------------------------------

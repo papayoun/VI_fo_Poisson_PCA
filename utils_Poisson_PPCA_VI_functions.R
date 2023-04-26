@@ -389,7 +389,7 @@ get_CAVI <- function(Y,
                               B = 1))
     if(is.null(X)){
       priors$Beta = list(M = rep(0, 1),
-                         C = rep(0.01, 1))
+                         Precision = rep(0.01, 1))
     }
     else{
       priors$Beta = list(M = matrix(0,
