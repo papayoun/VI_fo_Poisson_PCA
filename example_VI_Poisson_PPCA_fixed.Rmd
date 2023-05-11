@@ -384,7 +384,18 @@ get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
 ```
 
 
-**To be Continued**
+### Update for $Z_{i,j}$
+There is no close form expression for updating $Z$ and the variationnal approximation should be obtained numerically by maximising 
+$$ \mathbb{E}_{q_Z}\left[\log[Y\vert Z]\right]+\mathbb{E}_{q_Z}\left[\log[Z\vert\psi_{-Z}]\right]-\mathbb{E}_q\left[\log {q_Z}(Z)\right]$$ 
+
+At each step of the CAVI algorithm, $n \times p$ calls to the R optim subroutine performs the optimisation of a target function with two arguments :$M^{Z_{i,j}$ and $V^{Z_{i,j}$.
+$$ Y_{i,j}e^{M^{Z_{i,j}}+\frac{V^{Z_{i,j}}}{2}}-0.5 \times \mathbb{E}_{q}\left(Z_{i,j} - \eta_i \Lambda_j-X_i\beta_j\right)^2 -\frac{\log\vert {V^{Z_{i,j}}} \vert}{2}$$
+Omitting the indices for the variationnal mean and variance of $Z_{i,j}$ i.e. writing $M$ instead of $M^{Z_{i,j}}$ and $V$ instead of $V^{Z_{i,j}}$to simplify notations, up to constant terms (with regards to $q(Z_ij)$), the partial ELBO function writes:
+
+$$ Y_{i,j}e^{M+\frac{V}{2}}-0.5 \times((M^2+V)-2\times M \times \mathbb{E}_{q}\left( \eta_i \Lambda_j+X_i\beta_j\right)) -\frac{\log\vert {V} \vert}{2}$$
+Wrapping up, the partial ELBO function to maximise is:
+$$ Y_{i,j}e^{M+\frac{V}{2}}-0.5 M^2-0.5V+ M \times \left( M^{\eta_i} M^{\Lambda_j}+X_iM^{\beta_j}\right) -\frac{\log\vert V \vert}{2}$$
+
 
 ## Computing the ELBO
 
