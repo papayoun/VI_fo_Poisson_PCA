@@ -1,0 +1,784 @@
+---
+title: "About Variational Bayes for PPCA data"
+author: "Eric PARENT & Achille Thin & Pierre Gloaguen"
+date: "the 9th of May 2023 , UMR MIA-Paris, AgroParisTech, INRA, Université Paris-Saclay"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+  html_document:
+    code_folding: hide
+    df_print: paged
+    self_contained: yes
+    number_sections: yes
+    toc: yes
+    theme: journal
+    toc_float: yes
+    toc_depth: 2
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE, cache = FALSE}
+
+# knitr::opts_chunk$set(
+# 	echo = TRUE,
+# 	message = FALSE,
+# 	warning = FALSE,
+# 	cache = FALSE
+# )
+knitr::opts_chunk$set(
+	eval = FALSE,
+	message = FALSE,
+	warning = FALSE,
+	cache = FALSE,
+	include = TRUE
+)
+```
+
+# R codes and librairies {-}
+
+All `R` codes can be unfolded, for instance, unfold the following chunk to see which libairies are used in this document:
+
+```{r librairies}
+rm(list=ls())
+library(tidyverse) # For data manipulation and visualization
+library(abind) # To gather results together
+library(parallel) # For some parallel computations
+library(pacman) # For progress bar
+library(rjags)  # For MCMC sampling
+library(ggmcmc) # To format jags output
+library(extraDistr) # For the non standart t distribution
+```
+
+
+# A not-so-simple shrinkage PPCA model with Poisson observations
+
+Bhattacharya and Dunson consider a linear normal model with a gamma process to shrink the variances of the columns of the latent matrix $\Lambda$. Relying on this setting, we include a fixed effect (due to $f=1:F_x$ forcing conditions from known explanatary variates with intensity $X_{f,i}$ on site $i$ interveining with coefficient $\beta_{j,f}$ onto species $j=1:p$) in addition to the random ones (governed by the unknown sparse loading matrix $\Lambda$). 
+
+In turn, this latent linear model $Z$ governs the $n\times p$ matrix of Poisson observations $Y$. Denoting $Y_i$ the $i^{th}$row vector of matrix $Y$ with $p$ components, the hierarchical model is as follows:
+\begin{align*}
+Y_{i,j} &
+\overset{ind.}{\sim} \mathcal{P}_p(Z_{i,j}), &
+1\leq i \leq n 
+\\
+Z_i &
+\overset{ind.}{\sim} \mathcal{N}_p( X_i \beta+\eta_i\Lambda', \Sigma), &
+1\leq i \leq n 
+\\
+\Sigma &= 
+\text{diag}(\sigma_j^{2}), &
+1\leq j \leq p 
+\\
+\sigma_j^{-2}|(a_{\sigma},b_{\sigma}) &
+\sim \Gamma(a_{\sigma},b_{\sigma}) &
+1\leq j \leq p
+\\
+\Lambda_{jh} &
+\sim \mathcal{N}_{q}(0,\,\phi_{jh}^{-1}\tau_{h}^{-1}), &
+1\leq j \leq p, 1 \leq h \leq {q}
+\\
+\phi_{jh} &
+\sim \Gamma(\frac{\nu}{2},\frac{\nu}{2}), &
+1\leq j \leq p, 1 \leq h \leq {q}\\
+\tau_{h} &
+= \prod_{l=1}^h \delta_l &
+1\leq h \leq q
+\\ 
+\delta_1 &
+\sim \Gamma(a_1,1) &
+\\
+\delta_h &
+\sim \Gamma(a_2,1) &
+\forall l \geq 2
+\end{align*}
+
+For computational convenience, we suggest to consider the following independent normal prior for the column vector $\beta_j$:
+
+\begin{align*}
+\beta_{j} & \sim \mathcal{N}_{F_x}(0,Precision(j)^{-1}) &
+1\leq j \leq p ,
+1\leq f \leq F_x
+\end{align*}
+
+with $Precision(j)$ a supposedly known $F_x \times F_x$ positive diagonal matrix.
+
+Recall that -- up to constant terms-- the logdensity of the latent Normal multivariate distribution is:
+
+$$\log[Z|\Lambda,\Sigma,\beta] = -\frac{n}{2}\left(\log\vert C\vert +\text{Tr}(C^{-1}\hat{S}_{\tilde{Z}})\right)$$
+with
+
+$C= \Lambda\Lambda'+\Sigma$
+and
+$\hat{S}_{\tilde{Z}}=\frac{1}{n}\sum_{i=1}^n (Z_i- X_i \beta)'(Z_i- X_i\beta)$
+
+In the case $q<<p$, because $\Sigma$ is diagonal, it is easier to compute the inverse of the variance-covariance matrix by $$C^{-1}=\Sigma^{-1}-\Sigma^{-1}\Lambda(I+ \Lambda' \Sigma^{-1}\Lambda)^{-1}\Lambda'\Sigma^{-1}$$
+
+
+Some example data are generated in the following R code chunk.
+
+```{r generation}
+source("utils_generating_data.R") # Creates experiment_params.rds
+Y <- read.table("data_sets/synthetic/data_Y_Poisson_PPCA_with_covariates.txt", sep = ";") %>%
+  as.matrix()
+X <- read.table("data_sets/synthetic/data_covariates_Poisson_PPCA.txt", sep = ";") %>%
+  as.matrix()
+true_params <- readRDS("experiment_params.rds")
+```
+
+In the code, $Y$ is a known $n\times p$ matrix, $X$ is a known $n\times F_x$ matrix while the unknown $\Lambda$ will be a $p \times q$ matrix, $\beta$ will be a $p \times F_x$ matrix and $\eta$ a $n\times q$ matrix.
+
+# Variational approach
+
+## Variational family
+
+We denote $\psi$ the unknown with components $(Z, \tau,\phi,\eta,\Lambda,\Sigma, \beta)$ and choose an independent family $q(\psi) = \left(\prod_u q_{\psi_u}(\psi_u) \right)$ to approximate $[\psi|Y]$ such that :
+\begin{align*}
+\delta_h &
+\sim q_{\delta_h}(\cdot)= \mathcal{G}(A^{\delta}_h,B^{\delta}_h), &
+1\leq h \leq q 
+\\
+\phi_{jh} &
+\sim q_{\phi_{jh}}(\cdot)= \mathcal{G}(A^{\phi}_{jh},B^{\phi}_{jh}),  &
+1\leq j \leq p, 1\leq h \leq q
+\\
+\sigma^{-2}_{j} &
+\sim q_{\sigma^{-2}_{j}}(\cdot) = \mathcal{G}(A^{\sigma}_j,B^{\sigma}_j), &
+1\leq j \leq p 
+\\
+\eta_i &
+\sim q_{\eta_i}(\cdot)= \mathcal{N}(M_{\eta_i}, V^{\eta_i}), & 
+1\leq i \leq n
+\\
+\Lambda_j &
+\sim q_{\Lambda_j }(\cdot)= \mathcal{N}(M_{\lambda_j},V^{\Lambda_j}), &
+1\leq j \leq p 
+\\
+\beta_j &
+\sim q_{\beta_j }(\cdot)= \mathcal{N}(M_{\beta_j},V^{\beta_j}), &
+1\leq j \leq p, \\
+Z_{i,j} &
+\sim q_{Z_{i,j} }(\cdot)= \mathcal{N}(M_{Z_{i,j}},V^{Z_{i,j}}), &
+1\leq i \leq n, 1\leq j \leq p,
+\end{align*}
+where $\eta_i$ denotes the $i$-th row of the $n\times q$ matrix $\eta$,  $\Lambda_j$ denotes the $j$-th row of the $p\times q$ matrix $\Lambda$,and $\beta_j$ denotes the $j$-th row of the $p\times F_x$ matrix $\beta$. In the following, all vectors are treated as column vectors.
+
+## Evidence lower bound
+
+To update parameters, we rely on the minimisation of the Kullback Liebler divergence
+$KL= \mathbb{E}_q\left[\log\frac{q(\psi)}{[\psi|Y]}\right]$.
+Equivalently we want to maximize the ELBO
+
+$$\text{ELBO}= \mathbb{E}_q\left[\log[Y,Z,\tau,\phi,\eta,\Lambda,\sigma^{-2},\beta]\right]-\mathbb{E}_q\left[\log q(Z,\tau,\phi,\eta,\Lambda,\sigma^{-2},\beta)\right]$$
+
+Due to conditionnal independence the criterion can decomposed as 
+
+\begin{align*}
+\text{ELBO}=&\mathbb{E}_q\left[\log\left([Y|Z]\right)\right]\\
+&+\mathbb{E}_q\left[\log\left([Z|\eta,\Lambda,\Sigma,\beta]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\beta| \Sigma]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\Sigma]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\eta]\right) \right]\\
+& + \mathbb{E}_q\left[\log\left([\Lambda|\delta,\phi]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\phi]\right)\right]\\
+& + \mathbb{E}_q\left[\log\left([\delta]\right)\right]\\
+& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta, \beta)\right]
+\end{align*}
+
+## Terms to integrate
+
+Up to constant terms:
+$$log[Y_{i,j}\vert Z_{i,j}]=-e^{Z_{i,j}}Z_{i,j}Y_{i,j}$$
+
+\begin{align*}
+\log[Z|\Lambda,\Sigma,\eta,\beta]  &
+= \frac{n}{2}\sum_{j = 1}^p \log \sigma^{-2}_j - \frac{1}{2}\sum_{j = 1}^p \sigma^{-2}_j\left(Z^{j} - \eta \Lambda_j-X\beta_j\right)^T\left(Z^{j} - \eta \Lambda_j-X\beta_j\right)
+\\
+&= -\frac{n}{2}\left(\log\vert \Sigma^{-1}\vert +\text{Tr}(\Sigma^{-1}\hat{S}_{Z,\eta,\Lambda})\right),
+\end{align*}
+with
+
+$$ \hat{S}_{Z,\eta,\Lambda}=\frac{1}{n}\sum_{i=1}^n (Z_i-\Lambda\eta_i'-\beta X_i')(Z'_i-\eta_i\Lambda'- X_i\beta')\\
+= \frac{1}{n} (Z'-\eta\Lambda'-X\beta')(Z-\Lambda\eta'-\beta X').$$
+
+
+Continuing (still up to constant terms), we have for $\eta$:
+$$\log[\eta] = -\frac{1}{2}\sum_{i = 1}^n \eta_i^T\eta_i = -\frac{1}{2}\text{Tr}\left(\eta'\eta\right).$$
+Due to strong prior normal assuptions for $\beta$ ($\beta_j$ is the $j$th row of matrix $\beta$):
+
+$$\log\left([\beta_j|\Sigma]\right)= \log\left([\beta_j]\right)= -0.5\times Tr(Precision(j)\beta_j \beta_j^T)$$
+
+Since $\Sigma$ is diagonal:
+
+$$\log[\Sigma^{-1}] = \sum_{j=1}^p\left((a_\sigma -1)\log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)$$
+
+Due to normal assumptions for $\Lambda_j$
+
+$$\log\left([\Lambda_{j}|\tau_{h},\phi_{j,h}]\right)= \frac{1}{2}\sum_{h = 1}^q \left(\log \phi_{j,h} + \sum_{\ell = 1}^h\log \delta_\ell\right) - \frac{1}{2}\text{Tr}\left(\text{diag}\left(\phi_{j,h}\prod_{\ell = 1}^h\delta_\ell\right)\Lambda_{j}\Lambda_{j}^T \right).$$
+Remains the terms with the prior for $\phi_{j,h}\;(1\leq j \leq p, 1\leq h \leq q)$:
+
+$$\log[\phi_{jh}] = \left(\frac{\nu}{ 2} - 1\right)\log(\phi_{j,h}) -\frac{\nu}{ 2}\phi_{jh},$$
+and $\delta_h\; (1\leq h \leq q)$
+
+$$
+\log[\delta_{h}] = \left\lbrace 
+\begin{array}{lr}
+(a_1 -1)\log(\delta_{1}) -b_{1} \delta_{1} & \text{ if } h = 1,\\
+(a_2 -1)\log(\delta_{2}) -b_{2} \delta_{2} & \text{ else.}
+\end{array}
+\right.
+$$
+
+
+<!-- Wrapping up all the previous log density terms -->
+
+
+<!-- \begin{align*} -->
+<!-- \text{ELBO}=& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta)\right]\\ -->
+<!-- & +\mathbb{E}_q\left[\frac{n}{2}\left(\sum_{j=1}^p \log\sigma_j^{-2} \right)-0.5\sum_{i=1}^n tr\left(\Sigma^{-1} (Y_i-\Lambda\eta_i')(Y'_i-\eta_i\Lambda')\right)\right]\\ -->
+<!-- & + \mathbb{E}_q\left[\sum_{j=1}^p\left((a_\sigma -1)log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2}\right)\right]\\ -->
+<!-- & + \mathbb{E}_q\left[\frac{1}{2}tr(\eta'\eta) \right]\\ -->
+<!-- & + \sum_{j=1,h=1}^{p,q}\mathbb{E}_q\left[0.5log(\phi_{jh})-0.5\Lambda_{jh}^2\phi_{jh}\prod_{k=1}^h \delta_k+0.5\sum_{k=1}^h log(\delta_k) \right]\\ -->
+<!-- & + \mathbb{E}_q\left[(\frac{1}{ 2} \gamma -1)log(\phi_{jh}) -\frac{\gamma}{ 2}\phi_{jh}\right]\\ -->
+<!-- & + \mathbb{E}_q\left[(a_1 -1)log(\delta_{1}) - \delta_{1}\right]\\ -->
+<!-- & + \mathbb{E}_q\left[(a_2 -1)log(\delta_{2}) - \delta_{2}\right]\\ -->
+<!-- & + \cdots\\ -->
+<!-- & + \mathbb{E}_q\left[(a_2 -1)log(\delta_{q}) - \delta_{q}\right] -->
+<!-- \end{align*} -->
+
+
+<!-- Note that in all cases, expectations are  analytically available. -->
+
+## Updates for the coordinate ascent algorithm
+
+In our context, we want to maximize the ELBO with respect to 
+$$\theta = \left\lbrace \left(M^{Z_{i,j}}, V^{Z_{i,j}}\right)_{1\leq i \leq n;1\leq j \leq p},\left(M^{\beta_j}, V^{\beta_j}\right)_{1\leq j \leq p}, \left(M^{\Lambda_j}, V^{\Lambda_j}\right)_{1\leq j \leq p}, \left(M^{\eta_i}, V^{\eta_i}\right)_{1\leq i \leq n}, \left(A^{\sigma_j}, B^{\sigma_j}\right)_{1\leq j \leq p}, \left(A^{\phi_{j,h}}, B^{\phi_{j,h}}\right)_{1\leq j \leq p,1\leq h \leq q}, \left(A^{\delta_h}, B^{\delta_h}\right)_{1\leq h \leq q} \right\rbrace.$$
+A convenient way to maximize the ELBO in the context of conjugate mean field family is to proceed iteratively via a coordinate ascent algorithm for components that belong to the exponential family (all of them except $Z$).
+
+Starting from an initial guess $\theta^{(0)}$, we build a sequence $\left(\theta^{(k)}\right)_{k\geq 0}$ using the following procedure:
+For any unknown component $Z_u$, the variational parameters are updated by identifying the distribution given by $\mathbb{E}{q_{-u}}\left[f(\psi_u,\psi_{-u})\right]$, where $Z\psi_{-u}$ denotes all the hidden random variables except $\psi_u$, $\mathbb{E}_{q_{-u}}$ denotes the expectation with respect to these random variables, and $f(\psi_u,\psi_{-u})$ denotes all the terms in the ELBO that depend on $\psi_u$ (and potentially $\psi_{-u}$). 
+
+Let's illustrate this on the random variable $\sigma^{-2}_j$:
+
+### Updates for $\sigma^{-2}_j$
+
+
+
+In the ELBO, we see that
+$$
+f_{\sigma^{-2}_j}({\sigma^{-2}_j}, \psi_{-\sigma^{-2}_j}) = (a_\sigma -1)\log(\sigma_j^{-2}) -b_\sigma\sigma_j^{-2} + \frac{n}{2} \log \sigma^{-2}_j - \frac{1}{2} \sigma^{-2}_j\left(Z^{j} - \eta \Lambda_j -X\beta_j\right)^T\left(Z^{j} - \eta \Lambda_j-X\beta_j\right)
+$$
+
+Hence, 
+$$
+\mathbb{E}_{q_{-\sigma^{-2}_j}}[f_{\sigma^{-2}_j}({\sigma^{-2}_j}, \psi_{-\sigma^{-2}_j})] = \left(a_\sigma + \frac{n}{2} - 1\right)\log \sigma^{-2}_j - \left(b_{\sigma} + \frac{1}{2}\mathbb{E}_{q_{\eta,\Lambda_j}}\left[\left(Z^{j} - \eta \Lambda_j-X\beta_j\right)^T\left(Z^{j} - \eta \Lambda_j-X\beta_j\right)\right] \right)\sigma^{-2}_j + \text{Cst}.
+$$
+Therefore, one can immediately recognize the log p.d.f. of a Gamma distribution whose parameters are given by:
+
+* $A^{\sigma_j}= a_\sigma+\frac{n}{2}$; 
+* $B^{\sigma_j}_j= b_\sigma + \frac{1}{2}\mathbb{E}_{q_{\eta,\Lambda_j}}\left[\left(Z^{j} - \eta \Lambda_j-X\beta_j\right)^T\left(Z^{j} - \eta \Lambda_j-X\beta_j\right)\right]$. 
+
+It remains to compute the expectation. First, note that we have results for $X=0$ since the term :
+$$\mathbb{E}\left[ \left(Z^{j} - \eta \Lambda_j\right)^T\left(Z^{j} - \eta \Lambda_j\right) \right] = (Z^{j})^TY^{j} - 2 (Z^{j})^T\mathbb{E}[\eta] \mathbb{E}[\Lambda_j] + \text{Tr}\left(\mathbb{E}[\eta^T\eta]\mathbb{E}\left[\Lambda_j \Lambda_j^T\right] \right).$$ 
+has been previously obtained. For clarity, the previous function has been renamed *get_update_VI_Sigma_without_fixed_effects*.  It remains to add a quadratic component in $\beta_j$ and a rectangular one, linear in $X\beta_j$
+
+This is implemented in `R` within  the following function (in which $X'X$ has been precomputed for computer time saving):
+
+```{r get_update_VI_Sigma}
+get_update_VI_Sigma <- function(Y, params, priors,
+                                X = 0, XprimeX = 0){
+  # Useful quantities
+  n <- nrow(Y)
+  p <- ncol(Y)
+  F_x <- ncol(X)
+  Lambda <- params$Lambda
+  Eta <- params$Eta
+  Beta <- params$Beta
+  # Posterior variationel de A
+  update_without_X <- get_update_VI_Sigma_without_fixed_effects(Y, params, priors)
+  if(all(X == 0)){ # Case when no covariates
+    return(list(A = update_without_X$A, B = update_without_X$B))
+  }
+  else{
+    A <- update_without_X$A + F_x * 0.5
+    get_updade_term_B_sigma_j <- function(j){
+      term1 <- 0.5 * sum((XprimeX + priors$Beta$C) * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
+      term2 <- -sum((Y[, j] -  t(Eta$M) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
+      term1 + term2
+    }
+    B <- update_without_X$B + map_dbl(1:p, get_updade_term_B_sigma_j) 
+  }
+  return(list(A = A, B = B))
+}
+
+```
+
+### Updates for $\Lambda_j$
+
+Each term $\Lambda_j$ appears through a quadratic form:
+
+$$-\frac{1}{2}\left(\Lambda_j^{T}\left(\sigma^{-2}_j\eta^{T}\eta + \text{diag}\left(\phi_{j,h}\prod_{\ell = 1}^h\delta_\ell\right)_{1\leq h \leq q}\right)\Lambda_j - 2 \Lambda_j^{T}\sigma^{-2}_j\eta^{T}(Z_j-X\beta_j)\right).$$
+Therefore, as there is no quadratic terms in $\beta$ the CAVI algorithm leads to a Gaussian update, relying on the same function as the one without fixed effects where the linear response $Y_j$ (now hidden and renamed $Z$ in the LogPoisson model) is to be replaced by $Y_j-X\mathbb{E}(\beta_j)$ (indeed $Z_j-X\mathbb{E}(\beta_j)$ in the new notations) .
+
+
+### Updates for $\eta_i$
+
+Each term $\eta_i$ appears through a quadratic form in $\eta$ but a linear one in $Z$:
+
+$$-\frac{1}{2}\left(\eta_i^{T}\left(\Lambda^{T}\Sigma\Lambda + I_q\right)\eta_i - 2 \eta_i^{T}\Lambda^T\Sigma (Z_i-\beta X_i)\right),$$
+
+Therefore, the CAVI algorithm leads to a Gaussian update, relying on the same function as the one without fixed effects where the (now hidden) response $Z_j$ is replaced by $Z_j-X\mathbb{E}(\beta_j)$.
+
+\begin{align*}
+V^{\eta_i}&
+= \sum_{j = 1}^p \frac{A^{\sigma_j}}{B^{\sigma_j}} \left(V^{\Lambda_j} + M^{\Lambda_j}\left( M^{\Lambda_j}\right)^T\right)\\
+M^{\eta_i} &= V^{\eta_i}\left(M^{\Lambda}\right)^T\text{diag}\left(
+\frac{A^{\sigma_j}}{B^{\sigma_j}}
+\right)_{1\leq j \leq p}Y_i
+\end{align*}
+
+### Updates for $\phi_{j,h}$
+
+The terms implying $\phi_{j,h}$ are the following:
+
+$$ \left(\frac{\nu}{2} + \frac{1}{2} - 1\right)\log \phi_{j,h} - \left(\frac{\nu}{2} + \Lambda_{j,h}^2\prod_{\ell = 1}^h \delta_\ell\right)\phi_{j,h}.$$
+Therefore, the updates of the Gamma distribution parameters are given by:
+
+\begin{align*}
+A^{\phi_{j, h}} &= \frac{\nu}{2}+\frac{1}{2}\\ 
+B^{\phi_{j, h}} & =\frac{\nu}{2}+\frac{1}{2}\left(\left(M^{\Lambda_{j,h}}\right)^2 + V^{\Lambda_j}_{h,h}\right) \prod_{\ell = 1}^h \frac{A^{\delta_{\ell}}}{B^{\delta_{\ell}}}.
+\end{align*}
+
+With regards to absence of $Z$ in these updating equations, the updating sub routine  without fixed effect for $\phi$ can be kept without any change.
+
+### Update for $\delta_h$
+
+One can rely of the updating subroutine of $\delta_h$ from the model without fixed effect since it does not depend on $Z$.
+
+
+### Updates for $\beta_j$
+
+Sine $\beta$ plays a role similar to $\Lambda$ in the updating algorithm, it is easily found that $\beta_j$ has normal variational distribution obtained by applying conjugate properties. This is derived from the structure of the terms involving $\beta$ in 
+$$ \frac{-\sigma^{-2}_j }{2}\left((Z^{j} - \eta \Lambda_j-X\beta_j\right)^T\left(Z^{j} - \eta \Lambda_j-X\beta_j)\right)-Tr(Precision(j)\beta_j\beta_j')$$
+
+```{r get_update_VI_Beta}
+get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
+  Sigma <- params$Sigma
+  # Calcul des variances
+  V_Beta <- lapply(1:params$p, function(j){
+    precision <- Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$Precision[,,j]
+    variance <- solve(precision)
+    return(variance)
+  }) %>% 
+    abind(along = 3) # Mise au format array
+  M_Beta <- sapply(1:params$p, function(j){
+    V_Beta[,, j] %*% (
+      Sigma$A[j] / Sigma$B[j]  * t(X) %*% 
+        (params$Z$M[, j] - t(params$Eta$M) %*% params$Lambda$M[, j]) + 
+        priors$Beta$Precision[,, j] %*% priors$Beta$M[,j])
+  })
+  list(M = matrix(M_Beta, nrow = params$F_x, ncol = params$p),
+       Cov = V_Beta)
+}
+
+```
+
+
+**To be Continued**
+
+## Computing the ELBO
+
+The ELBO can be easily computed, as all the involved expectations are explicit. 
+
+We can check the evolution of the ELBO across iterations. To compute the ELBO, one needs to recall that
+
+ * the entropy of a Normal ($M,V$) distribution is equal, up to a constant, to $\frac{\log\vert V \vert}{2}$;
+ 
+ * the entropy of a Gamma ($A, B$) distribution is $A - \log B + \log\Gamma(A)+(1-A) \psi(A)$ with $\psi(\cdot)$ being the  digamma function;
+ 
+```{r}
+get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
+  # Variational entropy term
+  variational_entropy <- sum(apply(params$Lambda$Cov, 3, 
+                                   get_entropy_normal)) + # Lambda
+    sum(apply(params$Eta$Cov, 3, get_entropy_normal)) + # Eta
+    sum(get_entropy_gamma(params$Sigma$A, params$Sigma$B)) + # Sigma 
+    sum(get_entropy_gamma(params$Delta$A, params$Delta$B)) + # Delta 
+    sum(get_entropy_gamma(params$Phi$A, params$Phi$B)) # Phi
+  if(all(X != 0)){ # Case with covariates X with parameter beta
+    variational_entropy <- variational_entropy +
+      sum(apply(params$Beta$Cov, 3, get_entropy_normal))  # Beta
+  }
+  # Usefull expectations
+  expectations_log_sigma <- get_log_expectation_gamma(params$Sigma$A, params$Sigma$B)
+  expectations_sigma <- get_expectation_gamma(params$Sigma$A, params$Sigma$B)
+  expectations_log_delta <- get_log_expectation_gamma(params$Delta$A, params$Delta$B)
+  expectations_delta <- get_expectation_gamma(params$Delta$A, params$Delta$B)
+  expectations_log_phi <- get_log_expectation_gamma(params$Phi$A, params$Phi$B)
+  expectations_phi <- get_expectation_gamma(params$Phi$A, params$Phi$B)
+  # Likelihood term
+  E_eta_prime_eta <- apply(params$Eta$Cov, c(1, 2), sum) + # Sum of variances
+    Reduce(f = "+", 
+           x = lapply(1:n, function(i){
+             params$Eta$M[, i] %*% t(params$Eta$M[, i])
+           }))
+  get_E_quadr_form <- function(j){
+    term1 <- sum(0.5 * sum(Y[, j] * Y[, j]))
+    term2 <- - sum(Y[, j] * (t(params$Eta$M) %*% params$Lambda$M[,j])) # Eta$M is coded in q x n
+    term3 <- 0.5 * sum(E_eta_prime_eta * 
+                         (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) 
+    term2bis <- 0
+    term3bis <- 0
+    term4 <- 0
+    if(all(X != 0)){ # Case with covariates X with parameter beta
+      term2bis <- -sum(Y[, j] * (X %*% params$Beta$M[,j]) ) # Eta$M is coded in q x n
+      term3bis <- 0.5 * sum(XprimeX * 
+                              (params$Beta$Cov[,, j] + params$Beta$M[, j] %*% t(params$Beta$M[, j]))) 
+      term4 <- sum((X %*% params$Beta$M[,j])*t(params$Lambda$M[,j]%*%params$Eta$M))
+    }
+    
+    term1 + term2 + term3 +term2bis +term3bis+term4
+  }
+  likelihood_expectation <- sum(.5 * n * expectations_log_sigma -
+                                  expectations_sigma * map_dbl(1:p, get_E_quadr_form))
+  # Priors terms
+  prior_sigma_expectation <- sum((priors$Sigma$A - 1) * expectations_log_sigma - 
+                                   priors$Sigma$B * expectations_sigma)
+  prior_phi_expectation <- sum((priors$Phi$A - 1) * expectations_log_phi - 
+                                 priors$Phi$B * expectations_phi)
+  prior_delta_expectation <- sum((priors$Delta$A - 1) * expectations_log_delta - 
+                                   priors$Delta$B * expectations_delta)
+  prior_eta_expectation <- -0.5 * sum(map_dbl(1:n, function(i){
+    sum(params$Eta$M[,i]^2 + diag(params$Eta$Cov[,, i]))
+  }))
+  prior_lambda_expectation <- 0.5 * p * sum(cumsum(expectations_log_delta)) +
+    0.5 * sum(expectations_log_phi) - 
+    0.5 * sum(map_dbl(1:p, function(j){
+      sum(cumprod(expectations_delta) * diag(expectations_phi[j, ]) * 
+            (diag(params$Lambda$Cov[,, j]) + params$Lambda$M[, j]^2))
+    }))
+  prior_beta_expectation <- 0
+  if(all(X != 0)){ 
+    prior_beta_expectation <- 0.5 * F_x * sum(expectations_log_sigma) -
+      0.5 * sum(map_dbl(1:p, function(j){
+        expectations_sigma[j] *sum(diag(priors$Beta$C) * 
+                                     (params$Beta$Cov[,, j] + diag(params$Beta$M[, j]^2)))
+      }))
+  }
+  ELBO <- variational_entropy +
+    likelihood_expectation +
+    prior_delta_expectation +
+    prior_eta_expectation +
+    prior_lambda_expectation +
+    prior_sigma_expectation +
+    prior_phi_expectation +
+    prior_beta_expectation
+  return(ELBO)
+}
+
+
+```
+
+Therefore, the implementation is now straightforward:
+
+```{r get_CAVI}
+get_CAVI <- function(data_, q, n_steps, 
+                     X = NULL, 
+                     set_seed = FALSE,
+                     params = NULL,
+                     priors = NULL,
+                     updates = c(Lambda = TRUE, Sigma = TRUE,
+                                 Eta = TRUE, Delta = TRUE, Phi = TRUE, 
+                                 Beta = TRUE),
+                     debug = FALSE,
+                     get_ELBO_freq = 1){
+  if(is.null(priors)){
+    stop("We are bayesian guys, please specify a prior")
+  }
+  p <- ncol(data_); n <- nrow(data_); 
+  if(is.null(X)){
+    updates["Beta"] <- FALSE
+    X <- matrix(0, nrow = nrow(data_), ncol = 1)
+    priors$Beta = list(M = rep(0, ncol(X)),
+                       C = rep(0.01, ncol(X)))
+  }
+  F_x <- ncol(X)
+  XprimeX <- t(X) %*% X
+  if(set_seed){
+    set.seed(set_seed)
+  }
+  if(is.null(params)){
+    params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
+                                 Cov = array(diag(1, q), dim = c(q, q, p))),
+                   Beta = list(M = matrix(rnorm(F_x * p),
+                                          nrow = F_x, ncol = p),
+                               Cov = array(diag(1, F_x), 
+                                           dim = c(F_x, F_x, p))),
+                   Eta = list(M = matrix(rnorm(q * n), q, n),
+                              Cov = array(diag(1, q), dim = c(q, q, n))),
+                   Sigma = list(A = runif(p, 1, 3),
+                                B = runif(p, 1, 3)),
+                   Delta = list(A = runif(q, 2, 5) ,
+                                B = rep(1, q)),
+                   Phi = list(A = matrix(3/2, p, q),
+                              B = matrix(3/2, p, q)))
+  }
+  
+  # Propagation
+  # progess_bar <- txtProgressBar(min = 0, max = n_steps)
+  current_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                           X = X, XprimeX = XprimeX)
+  ELBOS <- data.frame(iteration = 0, 
+                      ELBO = current_ELBO)
+  # print(X)
+  # print(params$Beta$M)
+  for(step_ in 1:n_steps){
+    # Lambdas
+    if(updates["Lambda"]){
+      params$Lambda <- get_update_VI_Lambda(data_ - X %*% params$Beta$M, params)
+      if(debug){
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print("Problem at iteration", step_, "after updating Lambda")
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
+    # Etas
+    if(updates["Eta"]){
+      params$Eta <- get_update_VI_Eta(data_ - X %*% params$Beta$M, params)
+      if(debug){
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print("Problem at iteration", step_, "after updating Eta")
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
+    # Sigma
+    if(updates["Sigma"]){
+      params$Sigma <- get_update_VI_Sigma(data_, params, priors,
+                                          X = X, XprimeX = XprimeX)
+      if(debug){
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print("Problem at iteration", step_, "after updating Sigma")
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
+    if(updates["Beta"]){
+      params$Beta <- get_update_VI_Beta(Y = data_, params, priors, 
+                                        X = X, XprimeX = XprimeX)
+      if(debug){
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print("Problem at iteration", step_, "after updating Beta")
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
+    # Phis
+    if(updates["Phi"]){
+      params$Phi <- get_update_VI_Phi(params, priors)
+      if(debug){
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print("Problem at iteration", step_, "after updating Phi")
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
+    if(updates["Delta"]){
+      # deltas
+      params$Delta <- get_update_VI_Delta(params, priors)
+      if(debug){
+        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print(paste("Problem at iteration", step_, "after updating Delta"))
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
+    if((n_steps %% get_ELBO_freq) == 0){
+      ELBOS <- bind_rows(ELBOS,
+                         data.frame(iteration = step_,
+                                    ELBO = get_ELBO(Y = data_, params = params, priors = priors, 
+                                                    X = X, XprimeX = XprimeX)))
+    }
+  }
+  return(list(ELBOS = ELBOS, params = params))
+}
+
+```
+
+
+### And run!
+```{r}
+source("script_PPCA_VI_implementation_fixed.R")
+```
+
+
+# Comparaison with MCMC inference
+
+Relying on Jags, we can get MCMC samples from the posterior distribution of the unknows.
+
+```{r modelString}
+modelString = "
+model{
+#a1 <- 2
+#a2 <- 3
+a[1] ~ dgamma(2,1)T(2,)
+a[2] ~ dgamma(2,1)T(3,)
+deminu <- 3/2
+a_sigma <- 0.1
+b_sigma <- 0.1
+precibeta <- 0.01
+
+#shrinkage prior
+for( h in 2:q){delta[h] ~ dgamma(a[2],1)}
+              delta[1] ~ dgamma(a[1],1)
+for( h in 1:q){ tau[h] <- prod(delta[1:h])} 
+for( j in 1:p){
+               for( h in 1:q){
+                              phi[j,h] ~ dgamma(deminu,deminu)
+                              precilambda[j,h] <- phi[j,h]*tau[h]
+                              lambda[j,h]~ dnorm(0,precilambda[j,h])
+                              }
+               }
+# N(0,1) prior for eta
+for(i in 1:n){
+              for (h in 1:q){
+                      eta[i,h] ~ dnorm(0,1)
+                            }
+}
+for( f in 1:F_x){
+               for( j in 1:p){
+               beta[j,f]~ dnorm(0,precibeta)
+               }
+}
+muY <- eta %*% t(lambda)+X %*% t(beta)
+
+# finally Y
+for(j in 1:p){ preciE[j] ~ dgamma(a_sigma,b_sigma)
+              for (i in 1:n){
+                      Y[i,j] ~ dnorm(muY[i,j],preciE[j])
+                            }
+}
+
+}"
+```
+
+
+```{r jags_inference, eval = FALSE}
+data_for_JAGS <- list(
+  n = dim(Y)[1],
+  p = dim(Y)[2],
+  q = q,
+  Y = Y,
+  X=X,
+  F_x = ncol(X)
+)
+
+n.adapt = 1000
+burnin = 1000
+n.iter = burnin * 2
+thin = 1
+jm <- jags.model(
+  file = textConnection(modelString),
+  data = data_for_JAGS,
+  n.chains = 3 ,
+  n.adapt = n.adapt
+)
+update(jm, burnin)
+jsamples <- coda.samples(
+  model = jm,
+  variable.names = c("beta","lambda","preciE"),
+  n.iter = n.iter/10,
+  thin = thin
+)
+```
+
+
+We transform the MCMC coda file into a regular tibble to visualize posterior pdfs and variational ones.
+
+```{r MCMCvisualization}
+MCMC_results <- ggs(jsamples)
+ggs_traceplot(MCMC_results)
+ggs_density(MCMC_results,family=c("beta"))
+ggs_caterpillar(MCMC_results,family = "beta") 
+
++
+  scale_x_continuous(trans = "log10")
+```
+
+We can now visualize the estimated posterior distributions for $\beta$ parameters:
+```{r}
+MCMC_results <- ggs(jsamples)
+MCMC_results %>% filter(str_detect(Parameter,"beta")) %>%
+  group_by(Parameter) %>%  
+  summarise(q50=mean(value), q25= quantile(value,probs=0.25),q75= quantile(value,probs=0.75),qinf= quantile(value,probs=0.25), qsup= quantile(value,probs=0.95) ) %>% 
+  rename(names=Parameter) %>% cbind(color="Jags") ->Mjags
+
+names=(levels(Mjags$names))
+names<-names[str_detect(names,"beta")]
+
+Mtruth<- tibble(names=names,q50=as.vector(t(beta_true))) %>% 
+  mutate(q25=q50,q75=q50,qsup=q50,qinf=q50) %>% cbind(color="Truth")
+  
+
+meanligne= as.vector(t(result$params$Beta$M))
+varligne=c()
+for(f in 1:F_x){varligne=c(varligne,result$params$Beta$Cov[f,f,])}
+MVI<- tibble(names=names,q50=meanligne) %>% 
+  mutate(q25=q50+qnorm(0.25)*sqrt(varligne),
+         q75=q50+qnorm(0.75)*sqrt(varligne),
+         qsup=q50+qnorm(0.95)*sqrt(varligne),
+         qinf=q50+qnorm(0.05)*sqrt(varligne)) %>% cbind(color="VI")
+M=rbind(Mjags,Mtruth,MVI)
+  g=ggplot(M,aes(x=names))+
+  geom_boxplot(aes(color=color, ymin=qinf,lower=q25,middle=q50,
+                  upper=q75,ymax=qsup),stat="identity",position = "dodge")+
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))+
+labs(y="posterior",x="beta")
+print(g)
+
+
+
+```
+
+```{r}
+n_samples <-n.iter/thin
+result_VI<-list()
+q_guess<-q
+result_VI_coef<-result$params
+# Faisons une structure similaire à Gibbs
+result_VI$Lambda<-array(0,dim = c(p,q_guess,n_samples))
+for(j in 1:p){result_VI$Lambda[j,1:q_guess,1:n_samples]=
+  t(mvtnorm::rmvnorm(n_samples,result_VI_coef$Lambda$M[1:q_guess,j],
+                     result_VI_coef$Lambda$Cov[1:q_guess,1:q_guess,j]))}
+result_VI$Eta<-array(0,dim = c(n,q_guess,n_samples))
+for(i in 1:n){result_VI$Eta[i,1:q_guess,1:n_samples]=
+  t(mvtnorm::rmvnorm(n_samples,result_VI_coef$Eta$M[,i],
+                     result_VI_coef$Eta$Cov[,,i]))}
+result_VI$Sigma<-matrix(0,nr=p,nc=n_samples)
+for(s in 1:n_samples){result_VI$Sigma[1:p,s]=1/rgamma(p,result_VI_coef$Sigma$A[1:p],
+                                                      result_VI_coef$Sigma$B[1:p])}
+
+
+Sigma_VI_df<- format_matrix(matrix_=result_VI$Sigma,
+                            param_name="s",
+                            suffix_ = "2")%>% 
+  mutate(method="VI")
+
+Lambda_hat_VI_df <- format_array(result_VI$Lambda,
+                                 "Lambda") %>% mutate(method="VI")
+```
+
+
