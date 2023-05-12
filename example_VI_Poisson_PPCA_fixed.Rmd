@@ -388,13 +388,61 @@ get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
 There is no close form expression for updating $Z$ and the variationnal approximation should be obtained numerically by maximising 
 $$ \mathbb{E}_{q_Z}\left[\log[Y\vert Z]\right]+\mathbb{E}_{q_Z}\left[\log[Z\vert\psi_{-Z}]\right]-\mathbb{E}_q\left[\log {q_Z}(Z)\right]$$ 
 
-At each step of the CAVI algorithm, $n \times p$ calls to the R optim subroutine performs the optimisation of a target function with two arguments :$M^{Z_{i,j}$ and $V^{Z_{i,j}$.
-$$ Y_{i,j}e^{M^{Z_{i,j}}+\frac{V^{Z_{i,j}}}{2}}-0.5 \times \mathbb{E}_{q}\left(Z_{i,j} - \eta_i \Lambda_j-X_i\beta_j\right)^2 -\frac{\log\vert {V^{Z_{i,j}}} \vert}{2}$$
+At each step of the CAVI algorithm, the optimisation of a target function with two arguments , $M^{Z_{i,j}$ and $V^{Z_{i,j}$ is performed:
+$$ Y_{i,j}{M^{Z_{i,j}}}- e^{M^{Z_{i,j}}+\frac{V^{Z_{i,j}}}{2}}-0.5 \times \mathbb{E}_{q}(\sigma_j^{-2}\left(Z_{i,j} - \eta_i \Lambda_j-X_i\beta_j\right)^2) +\frac{\log\vert {V^{Z_{i,j}}} \vert}{2}$$
 Omitting the indices for the variationnal mean and variance of $Z_{i,j}$ i.e. writing $M$ instead of $M^{Z_{i,j}}$ and $V$ instead of $V^{Z_{i,j}}$to simplify notations, up to constant terms (with regards to $q(Z_ij)$), the partial ELBO function writes:
 
-$$ Y_{i,j}e^{M+\frac{V}{2}}-0.5 \times((M^2+V)-2\times M \times \mathbb{E}_{q}\left( \eta_i \Lambda_j+X_i\beta_j\right)) -\frac{\log\vert {V} \vert}{2}$$
-Wrapping up, the partial ELBO function to maximise is:
-$$ Y_{i,j}e^{M+\frac{V}{2}}-0.5 M^2-0.5V+ M \times \left( M^{\eta_i} M^{\Lambda_j}+X_iM^{\beta_j}\right) -\frac{\log\vert V \vert}{2}$$
+$$ Y_{i,j}M-e^{M+\frac{V}{2}}-0.5 \times\mathbb{E}_{q}(\sigma_j^{-2})\times((M^2+V)-2\times M \times   \mathbb{E}_{q}\left( \eta_i \Lambda_j+X_i\beta_j\right)) +\frac{\log\vert {V} \vert}{2}$$
+Wrapping up, the partial ELBO function to maximise to get $M^{Z_{i,j}$ and $V^{Z_{i,j}$ is:
+$$ Y_{i,j}M-e^{M+\frac{V}{2}}-0.5\frac{A^{\sigma_j}}{B^{\sigma_j}}M^2-0.5\frac{A^{\sigma_j}}{B^{\sigma_j}}V+ M \times \frac{A^{\sigma_j}}{B^{\sigma_j}} \left( M^{\eta_i} M^{\Lambda_j}+X_iM^{\beta_j}\right) +\frac{\log\vert V \vert}{2}$$
+The implementation is now straightforward through $n \times p$ calls to the R optim subroutine:
+
+```{r}
+get_update_Poisson_VI_Z <- function(Y, X, params){
+  target_function <- function(z_pars_ij, y_ij, A_j, B_j, M_ij) {
+    # i de 1 à n, j de 1 à p
+    m_ij = z_pars_ij[1]
+    s2_ij = z_pars_ij[2]
+    res = y_ij * m_ij - exp(m_ij + 0.5 * s2_ij)  - # Likelihood term 
+      0.5 * A_j / B_j * (m_ij^2 + s2_ij - 2 * m_ij * M_ij) + 
+      0.5 * log(s2_ij) # Variational entropy
+    return(-res) # Return the negative results for optimization
+  }
+  # Matrix of prior expectations for Z
+  prior_means <- X %*% params$Beta$M + t(params$Eta$M) %*% params$Lambda$M
+  A <- params$Sigma$A
+  B <- params$Sigma$B
+  m_start <- params$Z$M
+  s2_start <- params$Z$S2
+  colnames(m_start) = NULL
+  index_matrix <- expand.grid(i = 1:params$n,
+                              j = 1:params$p)
+  optim_results <- parallel::mcmapply(index_matrix[, "i"], 
+                                      index_matrix[, "j"],
+                                      FUN = function(i, j){
+                                        Opt <- optim(
+                                          par = c(m_start[i, j], s2_start[i, j]),
+                                          fn = target_function,
+                                          y_ij = Y[i, j],
+                                          A_j = A[j],
+                                          B_j = B[j],
+                                          M_ij = prior_means[i,j],
+                                          method = "L-BFGS-B",
+                                          lower = c(-Inf, 1e-10),
+                                          upper = c(Inf, 100)
+                                        )
+                                        c(mean = Opt$par[1], var = Opt$par[2])
+                                      },
+                                      mc.cores = parallel::detectCores() - 2,
+                                      SIMPLIFY = TRUE)
+  list(M = matrix(optim_results["mean", ],
+                  nrow = params$n,
+                  ncol = params$p),
+       S2 = matrix(optim_results["var", ],
+                   nrow = params$n,
+                   ncol = params$p))
+}
+```
 
 
 ## Computing the ELBO
