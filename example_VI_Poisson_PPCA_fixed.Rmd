@@ -182,13 +182,13 @@ Due to conditionnal independence the criterion can decomposed as
 & + \mathbb{E}_q\left[\log\left([\Lambda|\delta,\phi]\right)\right]\\
 & + \mathbb{E}_q\left[\log\left([\phi]\right)\right]\\
 & + \mathbb{E}_q\left[\log\left([\delta]\right)\right]\\
-& -\mathbb{E}_q\left[\log q(\Lambda,\Sigma,\eta,\phi,\delta, \beta)\right]
+& -\mathbb{E}_q\left[\log q(Z,\Lambda,\Sigma,\eta,\phi,\delta, \beta)\right]
 \end{align*}
 
 ## Terms to integrate
 
 Up to constant terms:
-$$log[Y_{i,j}\vert Z_{i,j}]=-e^{Z_{i,j}}Z_{i,j}Y_{i,j}$$
+$$log[Y_{i,j}\vert Z_{i,j}]=-e^{Z_{i,j}}+Z_{i,j}Y_{i,j}$$
 
 \begin{align*}
 \log[Z|\Lambda,\Sigma,\eta,\beta]  &
@@ -385,17 +385,17 @@ get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
 
 
 ### Update for $Z_{i,j}$
-There is no close form expression for updating $Z$ and the variationnal approximation should be obtained numerically by maximising 
+There is no closed form expression for updating $Z$ and the variationnal approximation should be obtained numerically by maximising 
 $$ \mathbb{E}_{q_Z}\left[\log[Y\vert Z]\right]+\mathbb{E}_{q_Z}\left[\log[Z\vert\psi_{-Z}]\right]-\mathbb{E}_q\left[\log {q_Z}(Z)\right]$$ 
 
-At each step of the CAVI algorithm, the optimisation of a target function with two arguments , $M^{Z_{i,j}$ and $V^{Z_{i,j}$ is performed:
+At each step of the CAVI algorithm, the optimisation of a target function with two arguments , $M^{Z_{i,j}}$ and $V^{Z_{i,j}}$ is performed:
 $$ Y_{i,j}{M^{Z_{i,j}}}- e^{M^{Z_{i,j}}+\frac{V^{Z_{i,j}}}{2}}-0.5 \times \mathbb{E}_{q}(\sigma_j^{-2}\left(Z_{i,j} - \eta_i \Lambda_j-X_i\beta_j\right)^2) +\frac{\log\vert {V^{Z_{i,j}}} \vert}{2}$$
 Omitting the indices for the variationnal mean and variance of $Z_{i,j}$ i.e. writing $M$ instead of $M^{Z_{i,j}}$ and $V$ instead of $V^{Z_{i,j}}$to simplify notations, up to constant terms (with regards to $q(Z_ij)$), the partial ELBO function writes:
 
 $$ Y_{i,j}M-e^{M+\frac{V}{2}}-0.5 \times\mathbb{E}_{q}(\sigma_j^{-2})\times((M^2+V)-2\times M \times   \mathbb{E}_{q}\left( \eta_i \Lambda_j+X_i\beta_j\right)) +\frac{\log\vert {V} \vert}{2}$$
-Wrapping up, the partial ELBO function to maximise to get $M^{Z_{i,j}$ and $V^{Z_{i,j}$ is:
+Wrapping up, the partial ELBO function to maximise to get $M^{Z_{i,j}}$ and $V^{Z_{i,j}}$ is:
 $$ Y_{i,j}M-e^{M+\frac{V}{2}}-0.5\frac{A^{\sigma_j}}{B^{\sigma_j}}M^2-0.5\frac{A^{\sigma_j}}{B^{\sigma_j}}V+ M \times \frac{A^{\sigma_j}}{B^{\sigma_j}} \left( M^{\eta_i} M^{\Lambda_j}+X_iM^{\beta_j}\right) +\frac{\log\vert V \vert}{2}$$
-The implementation is now straightforward through $n \times p$ calls to the R optim subroutine:
+The implementation is now straightforward through $n \times p$ calls to the R *optim* subroutine:
 
 ```{r}
 get_update_Poisson_VI_Z <- function(Y, X, params){
@@ -421,7 +421,8 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
                                       index_matrix[, "j"],
                                       FUN = function(i, j){
                                         Opt <- optim(
-                                          par = c(m_start[i, j], s2_start[i, j]),
+                                          par = c(m_start[i, j],    
+                                                  s2_start[i, j]),
                                           fn = target_function,
                                           y_ij = Y[i, j],
                                           A_j = A[j],
@@ -431,9 +432,10 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
                                           lower = c(-Inf, 1e-10),
                                           upper = c(Inf, 100)
                                         )
-                                        c(mean = Opt$par[1], var = Opt$par[2])
+                                        c(mean = Opt$par[1], 
+                                          var = Opt$par[2])
                                       },
-                                      mc.cores = parallel::detectCores() - 2,
+                                    mc.cores = parallel::detectCores() - 2,
                                       SIMPLIFY = TRUE)
   list(M = matrix(optim_results["mean", ],
                   nrow = params$n,
@@ -461,10 +463,11 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
   variational_entropy <- sum(apply(params$Lambda$Cov, 3, 
                                    get_entropy_normal)) + # Lambda
     sum(apply(params$Eta$Cov, 3, get_entropy_normal)) + # Eta
+    sum(.5 * log(params$Z$S2)) + # Somme des entropies pour Z
     sum(get_entropy_gamma(params$Sigma$A, params$Sigma$B)) + # Sigma 
     sum(get_entropy_gamma(params$Delta$A, params$Delta$B)) + # Delta 
     sum(get_entropy_gamma(params$Phi$A, params$Phi$B)) # Phi
-  if(all(X != 0)){ # Case with covariates X with parameter beta
+  if(any(X != 0)){ # Case with covariates X with parameter beta
     variational_entropy <- variational_entropy +
       sum(apply(params$Beta$Cov, 3, get_entropy_normal))  # Beta
   }
@@ -478,28 +481,29 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
   # Likelihood term
   E_eta_prime_eta <- apply(params$Eta$Cov, c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
-           x = lapply(1:n, function(i){
+           x = lapply(1:params$n, function(i){
              params$Eta$M[, i] %*% t(params$Eta$M[, i])
            }))
   get_E_quadr_form <- function(j){
-    term1 <- sum(0.5 * sum(Y[, j] * Y[, j]))
-    term2 <- - sum(Y[, j] * (t(params$Eta$M) %*% params$Lambda$M[,j])) # Eta$M is coded in q x n
+    term1 <- sum(0.5 * sum(params$Z$M[, j]^2 + params$Z$S2[, j]))
+    term2 <- - sum(params$Z$M[, j] * (t(params$Eta$M) %*% params$Lambda$M[,j])) # Eta$M is coded in q x n
     term3 <- 0.5 * sum(E_eta_prime_eta * 
                          (params$Lambda$Cov[,, j] + params$Lambda$M[, j] %*% t(params$Lambda$M[, j]))) 
     term2bis <- 0
     term3bis <- 0
     term4 <- 0
-    if(all(X != 0)){ # Case with covariates X with parameter beta
-      term2bis <- -sum(Y[, j] * (X %*% params$Beta$M[,j]) ) # Eta$M is coded in q x n
+    if(any(X != 0)){ # Case with covariates X with parameter beta
+      term2bis <- -sum(params$Z$M[, j] * (X %*% params$Beta$M[,j]) ) 
       term3bis <- 0.5 * sum(XprimeX * 
                               (params$Beta$Cov[,, j] + params$Beta$M[, j] %*% t(params$Beta$M[, j]))) 
       term4 <- sum((X %*% params$Beta$M[,j])*t(params$Lambda$M[,j]%*%params$Eta$M))
     }
     
-    term1 + term2 + term3 +term2bis +term3bis+term4
+    term1 + term2 + term3 + term2bis + term3bis + term4
   }
-  likelihood_expectation <- sum(.5 * n * expectations_log_sigma -
-                                  expectations_sigma * map_dbl(1:p, get_E_quadr_form))
+  z_knowing_theta_expectation <- sum(.5 * params$n * expectations_log_sigma -
+                                       expectations_sigma * map_dbl(1:params$p, get_E_quadr_form))
+  poisson_log_likelihood <- sum(Y * params$Z$M - exp(params$Z$M + 0.5 * params$Z$S2))
   # Priors terms
   prior_sigma_expectation <- sum((priors$Sigma$A - 1) * expectations_log_sigma - 
                                    priors$Sigma$B * expectations_sigma)
@@ -507,25 +511,32 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
                                  priors$Phi$B * expectations_phi)
   prior_delta_expectation <- sum((priors$Delta$A - 1) * expectations_log_delta - 
                                    priors$Delta$B * expectations_delta)
-  prior_eta_expectation <- -0.5 * sum(map_dbl(1:n, function(i){
-    sum(params$Eta$M[,i]^2 + diag(params$Eta$Cov[,, i]))
+  prior_eta_expectation <- -0.5 * sum(map_dbl(1:params$n, function(i){
+    sum(params$Eta$M[,i]^2 + diag(x = matrix(params$Eta$Cov[,, i],
+                                             nrow = params$q, ncol = params$q)))
   }))
-  prior_lambda_expectation <- 0.5 * p * sum(cumsum(expectations_log_delta)) +
+  prior_lambda_expectation <- 0.5 * params$p * sum(cumsum(expectations_log_delta)) +
     0.5 * sum(expectations_log_phi) - 
-    0.5 * sum(map_dbl(1:p, function(j){
-      sum(cumprod(expectations_delta) * diag(expectations_phi[j, ]) * 
-            (diag(params$Lambda$Cov[,, j]) + params$Lambda$M[, j]^2))
+    0.5 * sum(map_dbl(1:params$p, function(j){
+      sum(cumprod(expectations_delta) * diag(x = expectations_phi[j, ], nrow = params$q, ncol = params$q) * 
+            (diag(x = matrix(params$Lambda$Cov[,, j],
+                             nrow = params$q, ncol = params$q)) + params$Lambda$M[, j]^2))
     }))
   prior_beta_expectation <- 0
-  if(all(X != 0)){ 
-    prior_beta_expectation <- 0.5 * F_x * sum(expectations_log_sigma) -
-      0.5 * sum(map_dbl(1:p, function(j){
-        expectations_sigma[j] *sum(diag(priors$Beta$C) * 
-                                     (params$Beta$Cov[,, j] + diag(params$Beta$M[, j]^2)))
+  if(any(X != 0)){ 
+    # On considère un prior normal (non lié aux sigmas)
+    prior_beta_expectation <- 
+      -0.5 * sum(map_dbl(1:params$p, function(j){
+        # Expectation of beta'P0 beta
+        sum(priors$Beta$Precision[,,j] * 
+              (params$Beta$Cov[,, j] + diag(x = params$Beta$M[, j]^2, nrow = params$F_x, ncol = params$F_x))) -
+          2 * sum(params$Beta$M[, j] * priors$Beta$Precision[,,j] %*% priors$Beta$M[,j])
+        
       }))
   }
   ELBO <- variational_entropy +
-    likelihood_expectation +
+    z_knowing_theta_expectation +
+    poisson_log_likelihood +
     prior_delta_expectation +
     prior_eta_expectation +
     prior_lambda_expectation +
@@ -535,117 +546,174 @@ get_ELBO <- function(Y, params, priors, X = 0, XprimeX = 0){
   return(ELBO)
 }
 
-
 ```
 
 Therefore, the implementation is now straightforward:
 
 ```{r get_CAVI}
-get_CAVI <- function(data_, q, n_steps, 
+get_CAVI <- function(Y, 
                      X = NULL, 
-                     set_seed = FALSE,
-                     params = NULL,
+                     q, 
                      priors = NULL,
-                     updates = c(Lambda = TRUE, Sigma = TRUE,
-                                 Eta = TRUE, Delta = TRUE, Phi = TRUE, 
-                                 Beta = TRUE),
+                     n_steps, 
+                     seed = NULL,
+                     params = NULL,
+                     updates = NULL,
                      debug = FALSE,
                      get_ELBO_freq = 1){
+  p <- ncol(Y); n <- nrow(Y); 
+  # Checking priors
   if(is.null(priors)){
-    stop("We are bayesian guys, please specify a prior")
+    print("A default prior was set, this should be avoided")
+    priors = list(Sigma = list(A = 3, B = 2), 
+                  Phi = list(A = 3/2, B = 3/2),
+                  Delta= list(A = rep(3, q), 
+                              B = 1))
+    if(is.null(X)){
+      priors$Beta = list(M = rep(0, 1),
+                         Precision = rep(0.01, 1))
+    }
+    else{
+      priors$Beta = list(M = matrix(0,
+                                    nrow = ncol(X), ncol = p),
+                         Precision = array(diag(0.01, ncol(X)),
+                                           dim = c(ncol(X), ncol(X), p)))
+    }
   }
-  p <- ncol(data_); n <- nrow(data_); 
-  if(is.null(X)){
-    updates["Beta"] <- FALSE
-    X <- matrix(0, nrow = nrow(data_), ncol = 1)
-    priors$Beta = list(M = rep(0, ncol(X)),
-                       C = rep(0.01, ncol(X)))
-  }
-  F_x <- ncol(X)
-  XprimeX <- t(X) %*% X
-  if(set_seed){
-    set.seed(set_seed)
+  if(is.null(updates)){
+    print("As no updates were provided, by default, all unknown are updated")
+    updates = c(Lambda = TRUE, Sigma = TRUE,
+                Eta = TRUE, Delta = TRUE, Phi = TRUE, 
+                Beta = TRUE, Z = TRUE)
   }
   if(is.null(params)){
-    params <- list(Lambda = list(M = matrix(rnorm(q * p), q, p),
-                                 Cov = array(diag(1, q), dim = c(q, q, p))),
-                   Beta = list(M = matrix(rnorm(F_x * p),
-                                          nrow = F_x, ncol = p),
-                               Cov = array(diag(1, F_x), 
-                                           dim = c(F_x, F_x, p))),
-                   Eta = list(M = matrix(rnorm(q * n), q, n),
-                              Cov = array(diag(1, q), dim = c(q, q, n))),
-                   Sigma = list(A = runif(p, 1, 3),
-                                B = runif(p, 1, 3)),
-                   Delta = list(A = runif(q, 2, 5) ,
-                                B = rep(1, q)),
-                   Phi = list(A = matrix(3/2, p, q),
-                              B = matrix(3/2, p, q)))
+    print("As no initial parameters were fixed, there values is set randomly")
+    if(!is.null(seed)){
+      print(paste("Random seed fixed to", seed))
+      set.seed(seed)
+    }
+    params <- list(Lambda = list(M = matrix(rnorm(p * q),
+                                            nrow = q, ncol = p),
+                                 Cov = array(diag(1, q), 
+                                             dim = c(q, q, p))),
+                   Eta = list(M = matrix(rnorm(n * q), 
+                                         nrow = q, ncol = n),
+                              Cov = array(diag(1, q), 
+                                          dim = c(q, q, n))),
+                   Sigma = list(A = rep(priors$Sigma$A + n / 2, p),
+                                B = runif(p, 1, 5)),
+                   Delta = list(A = priors$Delta$A + 0.5 * p * (q + 1 - (1:q)),
+                                B = runif(q, 1, 10)),
+                   Phi = list(A =  matrix(priors$Phi$A + 0.5, p, q),
+                              B = matrix(runif(p * q, 1, 3), p, q)),
+                   Z = list(M = log(Y + 1),
+                            S2 = matrix(.1, nrow = nrow(Y),
+                                        ncol = ncol(Y)))) 
+    if(is.null(X)){
+      params$Beta = list(M = matrix(0,
+                                    nrow = 1, ncol = p),
+                         Cov = array(diag(x = 0.001, nrow = 1),
+                                     dim = c(1, 1, p)))
+    }
+    else{
+      params$Beta = list(M = matrix(rnorm(p * ncol(X)),
+                                    nrow = ncol(X), ncol = p),
+                         Cov = array(diag(1, ncol(X)), 
+                                     dim = c(ncol(X), ncol(X), p)))
+    }
   }
+  if(is.null(X)){
+    updates["Beta"] <- FALSE
+    print("As no X is provided, Beta won't be updated")
+    X <- matrix(0, nrow = n, ncol = 1)
+  }
+  # Defining reccurrent objects
+  XprimeX <- t(X) %*% X
+  # Adding constant to params
+  params$n <- nrow(Y)
+  params$p <- ncol(Y)
+  params$q <- q
+  params$F_x <- ncol(X)
   
-  # Propagation
-  # progess_bar <- txtProgressBar(min = 0, max = n_steps)
-  current_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+  current_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                            X = X, XprimeX = XprimeX)
   ELBOS <- data.frame(iteration = 0, 
                       ELBO = current_ELBO)
-  # print(X)
-  # print(params$Beta$M)
+  pacman::p_load(progress)
+  my_progress_bar <- progress_bar$new(total=n_steps)
+  options(width = 80)
   for(step_ in 1:n_steps){
+    
+      my_progress_bar$tick()
+    # if((step_ %% round(n_steps/10))==0){
+    #   stepbar <- round(step_ / n_steps * (width - extra))
+    #   text <- sprintf('|%s%s|% 3s%%', strrep('=', stepbar),
+    #                   strrep(' ', width - stepbar - extra), round(step_ / n_steps * 100))
+    #   cat(text)
+    #   cat('\n')
+    #   # Sys.sleep(0.05)
+    #   # cat(if (step_ == n_steps) '\n' else '\014')
+    #   #   my_progress_bar$tick()
+    # }
+
     # Lambdas
     if(updates["Lambda"]){
-      params$Lambda <- get_update_VI_Lambda(data_ - X %*% params$Beta$M, params)
+      params$Lambda <- get_update_Poisson_VI_Lambda(params = params, X = X)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
-          print("Problem at iteration", step_, "after updating Lambda")
+          print(new_ELBO - current_ELBO)
+          print(paste("Problem at iteration", step_, "after updating Lambda"))
         }
         current_ELBO <- new_ELBO
       }
     }
     # Etas
     if(updates["Eta"]){
-      params$Eta <- get_update_VI_Eta(data_ - X %*% params$Beta$M, params)
+      params$Eta <- get_update_Poisson_VI_Eta(params = params, X = X)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
-          print("Problem at iteration", step_, "after updating Eta")
+          print(new_ELBO - current_ELBO)
+          print(paste("Problem at iteration", step_, "after updating Eta"))
         }
         current_ELBO <- new_ELBO
       }
     }
     # Sigma
     if(updates["Sigma"]){
-      params$Sigma <- get_update_VI_Sigma(data_, params, priors,
-                                          X = X, XprimeX = XprimeX)
+      params$Sigma <- get_update_Poisson_VI_Sigma(params = params, priors = priors,
+                                                  X = X, XprimeX = XprimeX)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
-          print("Problem at iteration", step_, "after updating Sigma")
+          print(new_ELBO - current_ELBO)
+          print(paste("Problem at iteration", step_, "after updating Sigma"))
         }
         current_ELBO <- new_ELBO
       }
     }
     if(updates["Beta"]){
-      params$Beta <- get_update_VI_Beta(Y = data_, params, priors, 
-                                        X = X, XprimeX = XprimeX)
+      params$Beta <- get_update_Poisson_VI_Beta(params = params, priors = priors, 
+                                                X = X, XprimeX = XprimeX)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
-          print("Problem at iteration", step_, "after updating Beta")
+          print(new_ELBO - current_ELBO)
+          print(paste("Problem at iteration", step_, "after updating Beta"))
         }
         current_ELBO <- new_ELBO
       }
     }
     # Phis
     if(updates["Phi"]){
-      params$Phi <- get_update_VI_Phi(params, priors)
+      params$Phi <- get_update_Poisson_VI_Phi(params, priors)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print("Problem at iteration", step_, "after updating Phi")
@@ -655,9 +723,9 @@ get_CAVI <- function(data_, q, n_steps,
     }
     if(updates["Delta"]){
       # deltas
-      params$Delta <- get_update_VI_Delta(params, priors)
+      params$Delta <- get_update_Poisson_VI_Delta(params, priors)
       if(debug){
-        new_ELBO <- get_ELBO(Y = data_, params = params, priors = priors, 
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print(paste("Problem at iteration", step_, "after updating Delta"))
@@ -665,22 +733,34 @@ get_CAVI <- function(data_, q, n_steps,
         current_ELBO <- new_ELBO
       }
     }
+    if(updates["Z"]){
+      params$Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
+      if(debug){
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print(new_ELBO - current_ELBO)
+          print(paste("Problem at iteration", step_, "after updating Z"))
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
     if((n_steps %% get_ELBO_freq) == 0){
       ELBOS <- bind_rows(ELBOS,
                          data.frame(iteration = step_,
-                                    ELBO = get_ELBO(Y = data_, params = params, priors = priors, 
+                                    ELBO = get_ELBO(Y = Y, params = params, 
+                                                    priors = priors, 
                                                     X = X, XprimeX = XprimeX)))
     }
   }
   return(list(ELBOS = ELBOS, params = params))
 }
-
 ```
 
 
 ### And run!
 ```{r}
-source("script_PPCA_VI_implementation_fixed.R")
+source("script_Poisson_VI_implementation.R")
 ```
 
 
