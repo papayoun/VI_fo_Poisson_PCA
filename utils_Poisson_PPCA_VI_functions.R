@@ -610,7 +610,7 @@ format_array <- function(array_, param_name, row_indexes = NULL){
               setNames(paste0("col", 1:dim2)) %>% 
               mutate(iteration = l,
                      row = row_indexes) %>% 
-              pivot_longer(-c("true_paramsiteration", "row"), 
+              pivot_longer(-c("iteration", "row"), 
                            names_to = "column",
                            names_prefix = "col",
                            values_to = "Estimate") %>% 
