@@ -33,7 +33,7 @@ source("utils_Poisson_PPCA_VI_functions.R")
 
 result_VI <- get_CAVI(Y = Y, 
                       X = X,
-                      q = ncol(true_params$Lambda),
+                      q = 7,
                       seed = 123, 
                       n_steps = 60, 
                       debug = FALSE, 
@@ -59,7 +59,6 @@ Z_predict %>% round(1) %>% head()
   round(1) %>% 
   head()
 
-var_Z <- 
 # Beta ? ------------------------------------------------------------------
 
 true_params$beta

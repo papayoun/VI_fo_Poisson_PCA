@@ -65,7 +65,7 @@ for(j in 1:p){
 #  q = dim(Y)[2] - 1
 true_params <- readRDS("experiment_params.rds")
 
-q <- ncol(true_params$Lambda)
+q <- 7
 data_for_JAGS <- list(
   n = dim(Y)[1],
   p = dim(Y)[2],

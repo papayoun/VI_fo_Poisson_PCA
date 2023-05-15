@@ -214,7 +214,7 @@ tibble(value = map_dbl(Lambda_Eta_VI, function(x) x[site, species]),
 
 
 Lambdas_VI
-apply(result_VI$params$Lambda$M, 1, var)
+apply(result_VI$params$Lambda$M, 1, var) %>% plot()
 result_VI$params$Phi$A / result_VI$params$Phi$B
 plot(1 / cumprod(result_VI$params$Delta$A / result_VI$params$Delta$B))
 lambda_results_jags <- filter(result_jags,
@@ -475,3 +475,4 @@ ggplot() +
 (t(result_VI$params$Lambda$M) %*% result_VI$params$Lambda$M) %>% round(2)
 (t(params_Jags$Eta$M) %*% params_Jags$Lambda$M) %>% round(2) %>% head()
 (t(result_VI$params$Eta$M) %*% result_VI$params$Lambda$M) %>% round(2) %>% head()
+
