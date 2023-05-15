@@ -147,13 +147,13 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
                    ncol = params$p))
 }
 
-get_update_Poisson_amortized_VI_Z <- function(X, params){
+get_update_Poisson_amortized_VI_Z <- function(X, params, encode){
   
-  target_function <- function(Y, encoder, X, M, A, B) {
+  target_function <- function(Y, encode, X, M, A, B) {
     # i de 1 à n, j de 1 à p
     target_i <- function(i){
-      m_i = encoder(X)$M[i]
-      s2_i = encoder(X)$S2[i]
+      m_i = encode(X)$M[i]
+      s2_i = encode(X)$S2[i]
       y_i = Y[i]
       M_i = M[i]
       res_i = y_i * m_i - exp(m_i + 0.5 * s2_i)  - # Likelihood term 
@@ -168,30 +168,10 @@ get_update_Poisson_amortized_VI_Z <- function(X, params){
   prior_means <- X %*% params$Beta$M + t(params$Eta$M) %*% params$Lambda$M
   A <- params$Sigma$A
   B <- params$Sigma$B
-  m_start <- params$encoder(X)$M
-  s2_start <- params$encoder(X)$S2
-  colnames(m_start) = NULL
-  target = lapply(1:params$n, target_function)
-  index_matrix <- expand.grid(i = 1:params$n,
-                              j = 1:params$p)
-  optim_results <- parallel::mcmapply(index_matrix[, "i"], 
-                                      index_matrix[, "j"],
-                                      FUN = function(i, j){
-                                        Opt <- optim(
-                                          par = c(m_start[i, j], s2_start[i, j]),
-                                          fn = target_function,
-                                          y_ij = Y[i, j],
-                                          A_j = A[j],
-                                          B_j = B[j],
-                                          M_ij = prior_means[i,j],
-                                          method = "L-BFGS-B",
-                                          lower = c(-Inf, 1e-10),
-                                          upper = c(Inf, 100)
-                                        )
-                                        c(mean = Opt$par[1], var = Opt$par[2])
-                                      },
-                                      mc.cores = parallel::detectCores() - 2,
-                                      SIMPLIFY = TRUE)
+  m_start <- encode(X)$M
+  s2_start <- encode(X)$S2
+  
+  ###TO CONTINUE
   list(M = matrix(optim_results["mean", ],
                   nrow = params$n,
                   ncol = params$p),
@@ -413,9 +393,6 @@ get_CAVI <- function(Y,
       print(paste("Random seed fixed to", seed))
       set.seed(seed)
     }
-    if(amortize){
-      encoder 
-    }
     params <- list(Lambda = list(M = matrix(rnorm(p * q),
                                             nrow = q, ncol = p),
                                  Cov = array(diag(1, q), 
@@ -433,6 +410,17 @@ get_CAVI <- function(Y,
                    Z = list(M = log(Y + 1),
                             S2 = matrix(.1, nrow = nrow(Y),
                                         ncol = ncol(Y)))) 
+    
+    if(amortize){
+      if(is.null(params$encoder)){
+        params$encoder = nn_sequential(nn_linear(n, 100),
+                                       nn_relu(),
+                                       nn_linear(100, 40),
+                                       nn_relu())
+        params$latent_M = nn_linear(40, q)
+        params$latent_S2 = nn_linear(40, q)
+      } 
+    }
     if(is.null(X)){
       params$Beta = list(M = matrix(0,
                                     nrow = 1, ncol = p),
@@ -558,7 +546,17 @@ get_CAVI <- function(Y,
       }
     }
     if(updates["Z"]){
-      params$Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
+      if(!amortize){
+      params$Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)}
+      else{
+        encode = function(x) {
+          result <- params$encoder(x) %>%
+            torch_flatten(start_dim = 1)
+          M <- params$latent_M(result)
+          S2 <- params$latent_S2(result)
+          list(mean, log_var)
+        }
+      }
       if(debug){
         new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
