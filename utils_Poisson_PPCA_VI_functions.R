@@ -148,18 +148,20 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
 }
 
 get_update_Poisson_amortized_VI_Z <- function(X, params){
+  
   target_function <- function(Y, encoder, X, M, A, B) {
     # i de 1 à n, j de 1 à p
-    res = 0
-    for(i in 1:params$n){
-    m_i = encoder(X)$M[i]
-    s2_i = encoder(X)$S2[i]
-    y_i = Y[i]
-    M_i = M[i]
-    res = res + y_i * m_i - exp(m_i + 0.5 * s2_i)  - # Likelihood term 
+    target_i <- function(i){
+      m_i = encoder(X)$M[i]
+      s2_i = encoder(X)$S2[i]
+      y_i = Y[i]
+      M_i = M[i]
+      res_i = y_i * m_i - exp(m_i + 0.5 * s2_i)  - # Likelihood term 
       0.5 * A / B * (m_i^2 + s2_i - 2 * m_i * M_i) + 
       0.5 * log(s2_i)
+    return(res_i)
     }# Variational entropy
+    res = lapply(1:params$n, target_i)
     return(torch_sum(-res)) # Return the negative results for optimization
   }
   # Matrix of prior expectations for Z
@@ -378,7 +380,8 @@ get_CAVI <- function(Y,
                      params = NULL,
                      updates = NULL,
                      debug = FALSE,
-                     get_ELBO_freq = 1){
+                     get_ELBO_freq = 1,
+                     amortize = FALSE){
   p <- ncol(Y); n <- nrow(Y); 
   # Checking priors
   if(is.null(priors)){
@@ -409,6 +412,9 @@ get_CAVI <- function(Y,
     if(!is.null(seed)){
       print(paste("Random seed fixed to", seed))
       set.seed(seed)
+    }
+    if(amortize){
+      encoder 
     }
     params <- list(Lambda = list(M = matrix(rnorm(p * q),
                                             nrow = q, ncol = p),
