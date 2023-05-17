@@ -109,6 +109,7 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
 }
 
 get_update_Poisson_VI_Z <- function(Y, X, params){
+  indexes <- params$batch_indexes
   target_function <- function(z_pars_ij, y_ij, A_j, B_j, M_ij) {
     # i de 1 à n, j de 1 à p
     m_ij = z_pars_ij[1]
@@ -130,18 +131,23 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
   optim_results <- parallel::mcmapply(index_matrix[, "i"], 
                                       index_matrix[, "j"],
                                       FUN = function(i, j){
-                                        Opt <- optim(
-                                          par = c(m_start[i, j], s2_start[i, j]),
-                                          fn = target_function,
-                                          y_ij = Y[i, j],
-                                          A_j = A[j],
-                                          B_j = B[j],
-                                          M_ij = prior_means[i,j],
-                                          method = "L-BFGS-B",
-                                          lower = c(-Inf, 1e-10),
-                                          upper = c(Inf, 100)
-                                        )
-                                        c(mean = Opt$par[1], var = Opt$par[2])
+                                        if (i %in% indexes) {
+                                          Opt <- optim(
+                                            par = c(m_start[i, j], s2_start[i, j]),
+                                            fn = target_function,
+                                            y_ij = Y[i, j],
+                                            A_j = A[j],
+                                            B_j = B[j],
+                                            M_ij = prior_means[i,j],
+                                            method = "L-BFGS-B",
+                                            lower = c(-Inf, 1e-10),
+                                            upper = c(Inf, 100)
+                                          )
+                                          return(c(mean = Opt$par[1], var = Opt$par[2]))
+                                        }
+                                        else {
+                                          c(mean = m_start[i, j], var = s2_start[i, j])
+                                        }
                                       },
                                       mc.cores = parallel::detectCores() - 2,
                                       SIMPLIFY = TRUE)
@@ -190,9 +196,10 @@ get_update_Poisson_amortized_VI_Z <- function(X, params, encode){
 
 get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
   Sigma <- params$Sigma
+  scale_factor <- params$scale_factor
   # Calcul des variances
   V_Beta <- lapply(1:params$p, function(j){
-    precision <- Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$Precision[,,j]
+    precision <- scale_factor * Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$Precision[,,j]
     variance <- solve(precision)
     return(variance)
   }) %>% 
@@ -465,10 +472,14 @@ get_CAVI <- function(Y,
   my_progress_bar <- progress_bar$new(total=n_steps)
   options(width = 80)
   for(step_ in 1:n_steps){
+    # Bacth sampling
     params$batch_indexes <- sample(1:params$n,
                                    size = params$batch_size,
                                    replace = FALSE) %>% 
       sort()
+    sub_X <- X[params$batch_indexes, ] # X only at batch values
+    sub_XprimeX <- t(sub_X) %*% sub_X
+    # Start the iteration
     my_progress_bar$tick()
     # Lambdas
     if(updates["Lambda"]){
@@ -510,11 +521,9 @@ get_CAVI <- function(Y,
     }
     # Sigma
     if(updates["Sigma"]){
-      tmp_X <- X[params$batch_indexes, ] # X only at batch values
-      tmp_XpX <- t(tmp_X) %*% tmp_X
       new_Sigma <- get_update_Poisson_VI_Sigma(params = params, priors = priors,
-                                               X = tmp_X, 
-                                               XprimeX = tmp_XpX)
+                                               X = sub_X, 
+                                               XprimeX = sub_XprimeX)
       params$Sigma <- map2(.x = get_natural_gamma(params$Sigma),
                            .y = get_natural_gamma(new_Sigma),
                            .f = function(x, y){
@@ -533,7 +542,7 @@ get_CAVI <- function(Y,
     }
     if(updates["Beta"]){
       new_Beta <- get_update_Poisson_VI_Beta(params = params, priors = priors, 
-                                             X = X, XprimeX = XprimeX)
+                                             X = sub_X, XprimeX = sub_XprimeX)
       params$Beta <- map2(.x = get_natural_multinormal(params$Beta),
                           .y = get_natural_multinormal(new_Beta),
                           .f = function(x, y){
