@@ -24,8 +24,8 @@ get_update_Poisson_VI_Lambda <- function(params, X){
   }) %>% 
     abind(along = 3) # Mise au format array
   M_Lambda <- sapply(1:params$p, function(j){
-    Sigma$A[j] / Sigma$B[j]  * V_Lambda[,, j] %*% Eta$M %*% 
-      (params$Z$M[, j] - X %*% params$Beta$M[, j, drop = FALSE]) 
+    Sigma$A[j] / Sigma$B[j]  * V_Lambda[,, j] %*% Eta$M[, indexes] %*% 
+      (params$Z$M[indexes, j] - X[indexes, ] %*% params$Beta$M[, j, drop = FALSE]) 
   })
   list(M = matrix(M_Lambda, nrow = params$q, ncol = params$p), Cov = V_Lambda)
 }
@@ -72,8 +72,8 @@ get_update_Poisson_VI_Sigma_without_fixed_effects <- function(params, priors){
              Eta$M[, i] %*% t(Eta$M[, i])
            }))
   get_B_sigma_j <- function(j){
-    term1 <- 0.5 * sum(params$Z$M[, j]^2  +  params$Z$S2[,j]) 
-    term2 <- -sum(params$Z$M[, j] * (t(Eta$M) %*% Lambda$M[,j])) # Eta$M is coded in q x n
+    term1 <- 0.5 * sum(params$Z$M[indexes, j]^2  +  params$Z$S2[indexes, j]) 
+    term2 <- -sum(params$Z$M[indexes, j] * (t(Eta$M[, indexes]) %*% Lambda$M[,j])) # Eta$M is coded in q x n
     term3 <- 0.5 * sum(E_eta_prime_eta * 
                          (Lambda$Cov[,, j] + Lambda$M[, j] %*% t(Lambda$M[, j]))) 
     term1 + term2 + term3
@@ -197,6 +197,7 @@ get_update_Poisson_amortized_VI_Z <- function(X, params, encode){
 get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
   Sigma <- params$Sigma
   scale_factor <- params$scale_factor
+  indexes <- params$batch_indexes
   # Calcul des variances
   V_Beta <- lapply(1:params$p, function(j){
     precision <- scale_factor * Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$Precision[,,j]
@@ -207,7 +208,7 @@ get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
   M_Beta <- sapply(1:params$p, function(j){
     V_Beta[,, j] %*% (
       Sigma$A[j] / Sigma$B[j]  * t(X) %*% 
-        (params$Z$M[, j] - t(params$Eta$M) %*% params$Lambda$M[, j]) + 
+        (params$Z$M[indexes, j] - t(params$Eta$M[, indexes]) %*% params$Lambda$M[, j]) + 
         priors$Beta$Precision[,, j] %*% priors$Beta$M[,j])
   })
   list(M = matrix(M_Beta, nrow = params$F_x, ncol = params$p),
@@ -461,7 +462,7 @@ get_CAVI <- function(Y,
   params$p <- ncol(Y)
   params$q <- q
   params$F_x <- ncol(X)
-  params$batch_size <- max(1, round(params$batch_prop * params$n))
+  params$batch_size <- max(1, round(batch_prop * params$n))
   params$scale_factor <- params$n / params$batch_size
   
   current_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
