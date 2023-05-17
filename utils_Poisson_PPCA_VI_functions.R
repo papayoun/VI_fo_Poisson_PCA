@@ -7,14 +7,16 @@ get_update_Poisson_VI_Lambda <- function(params, X){
   Sigma <- params$Sigma
   Phi <- params$Phi
   Delta <- params$Delta
+  indexes <- params$batch_indexes
+  scale_factor <- params$scale_factor
   E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
-           x = map(1:params$n, function(i){
+           x = map(indexes, function(i){
              Eta$M[, i] %*% t(Eta$M[, i])
            }))
   # Calcul des precisions
   V_Lambda <- lapply(1:params$p, function(j){
-    precision <- Sigma$A[j] / Sigma$B[j] * E_eta_prime_eta + 
+    precision <- Sigma$A[j] / Sigma$B[j] * E_eta_prime_eta * scale_factor + 
       diag(x = Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B),
            nrow = params$q, ncol = params$q)
     variance <- solve(precision)
@@ -33,8 +35,7 @@ get_update_Poisson_VI_Eta <- function(params, X){
   # Useful quantities
   Lambda <- params$Lambda
   Sigma <- params$Sigma
-  Phi <- params$Phi
-  Delta <- params$Delta
+  indexes <- params$batch_indexes
   
   #First, get the common covariance matrix
   common_cov <- lapply(1:params$p, function(j){
@@ -51,7 +52,8 @@ get_update_Poisson_VI_Eta <- function(params, X){
   # The means
   # Response matrix
   response_matrix <- params$Z$M - X %*% params$Beta$M
-  M <- sapply(1:params$n, function(i){
+  M <- params$Eta$M
+  M[, indexes] <- sapply(indexes, function(i){
     mean_matrix %*% response_matrix[i, ] 
   })
   Cov <- array(common_cov, dim = c(params$q, params$q, params$n))
@@ -361,6 +363,7 @@ get_CAVI <- function(Y,
                      updates = NULL,
                      debug = FALSE,
                      get_ELBO_freq = 1,
+                     batch_prop = 1,
                      learn_rate = 1, # Must be between 0 and 1, 1 is CAVI
                      amortize = FALSE){
   p <- ncol(Y); n <- nrow(Y); 
@@ -447,6 +450,8 @@ get_CAVI <- function(Y,
   params$p <- ncol(Y)
   params$q <- q
   params$F_x <- ncol(X)
+  params$batch_size <- max(1, round(params$batch_prop * params$n))
+  params$scale_factor <- params$n / params$batch_size
   
   current_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                            X = X, XprimeX = XprimeX)
@@ -456,9 +461,11 @@ get_CAVI <- function(Y,
   my_progress_bar <- progress_bar$new(total=n_steps)
   options(width = 80)
   for(step_ in 1:n_steps){
-    
+    params$batch_indexes <- sample(1:params$n,
+                                   size = params$batch_size,
+                                   replace = FALSE) %>% 
+      sort()
     my_progress_bar$tick()
-    
     # Lambdas
     if(updates["Lambda"]){
       new_Lambda <- get_update_Poisson_VI_Lambda(params = params, X = X)
