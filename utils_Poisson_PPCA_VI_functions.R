@@ -157,9 +157,9 @@ get_update_Poisson_amortized_VI_Z <- function(X, params, encode){
       y_i = Y[i]
       M_i = M[i]
       res_i = y_i * m_i - exp(m_i + 0.5 * s2_i)  - # Likelihood term 
-      0.5 * A / B * (m_i^2 + s2_i - 2 * m_i * M_i) + 
-      0.5 * log(s2_i)
-    return(res_i)
+        0.5 * A / B * (m_i^2 + s2_i - 2 * m_i * M_i) + 
+        0.5 * log(s2_i)
+      return(res_i)
     }# Variational entropy
     res = lapply(1:params$n, target_i)
     return(torch_sum(-res)) # Return the negative results for optimization
@@ -361,6 +361,7 @@ get_CAVI <- function(Y,
                      updates = NULL,
                      debug = FALSE,
                      get_ELBO_freq = 1,
+                     learn_rate = 1, # Must be between 0 and 1, 1 is CAVI
                      amortize = FALSE){
   p <- ncol(Y); n <- nrow(Y); 
   # Checking priors
@@ -456,21 +457,17 @@ get_CAVI <- function(Y,
   options(width = 80)
   for(step_ in 1:n_steps){
     
-      my_progress_bar$tick()
-    # if((step_ %% round(n_steps/10))==0){
-    #   stepbar <- round(step_ / n_steps * (width - extra))
-    #   text <- sprintf('|%s%s|% 3s%%', strrep('=', stepbar),
-    #                   strrep(' ', width - stepbar - extra), round(step_ / n_steps * 100))
-    #   cat(text)
-    #   cat('\n')
-    #   # Sys.sleep(0.05)
-    #   # cat(if (step_ == n_steps) '\n' else '\014')
-    #   #   my_progress_bar$tick()
-    # }
-
+    my_progress_bar$tick()
+    
     # Lambdas
     if(updates["Lambda"]){
-      params$Lambda <- get_update_Poisson_VI_Lambda(params = params, X = X)
+      new_Lambda <- get_update_Poisson_VI_Lambda(params = params, X = X)
+      params$Lambda <- map2(.x = get_natural_multinormal(params$Lambda),
+                            .y = get_natural_multinormal(new_Lambda),
+                            .f = function(x, y){
+                              (1 - learn_rate) * x + learn_rate * y
+                            }) %>% 
+        get_multinormal_from_natural()
       if(debug){
         new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
@@ -483,7 +480,13 @@ get_CAVI <- function(Y,
     }
     # Etas
     if(updates["Eta"]){
-      params$Eta <- get_update_Poisson_VI_Eta(params = params, X = X)
+      new_Eta <- get_update_Poisson_VI_Eta(params = params, X = X)
+      params$Eta <- map2(.x = get_natural_multinormal(params$Eta),
+                         .y = get_natural_multinormal(new_Eta),
+                         .f = function(x, y){
+                           (1 - learn_rate) * x + learn_rate * y
+                         }) %>% 
+        get_multinormal_from_natural()
       if(debug){
         new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
@@ -496,8 +499,14 @@ get_CAVI <- function(Y,
     }
     # Sigma
     if(updates["Sigma"]){
-      params$Sigma <- get_update_Poisson_VI_Sigma(params = params, priors = priors,
-                                                  X = X, XprimeX = XprimeX)
+      new_Sigma <- get_update_Poisson_VI_Sigma(params = params, priors = priors,
+                                               X = X, XprimeX = XprimeX)
+      params$Sigma <- map2(.x = get_natural_gamma(params$Sigma),
+                           .y = get_natural_gamma(new_Sigma),
+                           .f = function(x, y){
+                             (1 - learn_rate) * x + learn_rate * y
+                           }) %>% 
+        get_gamma_from_natural()
       if(debug){
         new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
@@ -509,9 +518,15 @@ get_CAVI <- function(Y,
       }
     }
     if(updates["Beta"]){
-      params$Beta <- get_update_Poisson_VI_Beta(params = params, priors = priors, 
-                                                X = X, XprimeX = XprimeX)
-      if(debug){
+      new_Beta <- get_update_Poisson_VI_Beta(params = params, priors = priors, 
+                                             X = X, XprimeX = XprimeX)
+      params$Beta <- map2(.x = get_natural_multinormal(params$Beta),
+                          .y = get_natural_multinormal(new_Beta),
+                          .f = function(x, y){
+                            (1 - learn_rate) * x + learn_rate * y
+                          }) %>% 
+        get_multinormal_from_natural()
+      if (debug) {
         new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
@@ -523,7 +538,14 @@ get_CAVI <- function(Y,
     }
     # Phis
     if(updates["Phi"]){
-      params$Phi <- get_update_Poisson_VI_Phi(params, priors)
+      # params$Phi <- get_update_Poisson_VI_Phi(params, priors)
+      new_Phi <- get_update_Poisson_VI_Phi(params, priors)
+      params$Phis <- map2(.x = get_natural_gamma(params$Phi),
+                          .y = get_natural_gamma(new_Phi),
+                          .f = function(x, y){
+                            (1 - learn_rate) * x + learn_rate * y
+                          }) %>% 
+        get_gamma_from_natural()
       if(debug){
         new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
@@ -535,7 +557,13 @@ get_CAVI <- function(Y,
     }
     if(updates["Delta"]){
       # deltas
-      params$Delta <- get_update_Poisson_VI_Delta(params, priors)
+      new_Delta <- get_update_Poisson_VI_Delta(params, priors)
+      params$Delta <- map2(.x = get_natural_gamma(params$Delta),
+                           .y = get_natural_gamma(new_Delta),
+                           .f = function(x, y){
+                             (1 - learn_rate) * x + learn_rate * y
+                           }) %>% 
+        get_gamma_from_natural()
       if(debug){
         new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                              X = X, XprimeX = XprimeX)
@@ -547,7 +575,14 @@ get_CAVI <- function(Y,
     }
     if(updates["Z"]){
       if(!amortize){
-      params$Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)}
+        new_Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
+        params$Z <- map2(.x = get_natural_normal(params$Z),
+                         .y = get_natural_normal(new_Z),
+                         .f = function(x, y){
+                           (1 - learn_rate) * x + learn_rate * y
+                         }) %>% 
+          get_normal_from_natural()
+      }
       else{
         encode = function(Y) { # S'appliquera à la matrice des Y
           result <- params$encoder(Y) %>%
@@ -642,4 +677,56 @@ format_matrix <- function(matrix_, # Matrix of values d x n_iterations
                  values_to = "Estimate") %>% 
     mutate(Parameter = factor(Parameter, level = names_levels)) %>% 
     arrange(Parameter)
+}
+
+get_natural_normal <- function(list_params){
+  eta_2 = -0.5 / list_params$S2
+  eta_1 <- list_params$M / list_params$S2
+  list(eta_1 = eta_1, eta_2 = eta_2)
+}
+
+get_normal_from_natural <- function(list_params){
+  S2 <- -.5 / list_params$eta_2
+  M <- S2 * list_params$eta_1
+  list(M = M, S2 = S2)
+}
+
+get_natural_multinormal <- function(list_params){
+  if (is.null(list_params$Prec)) {
+    # Get precisions
+    Cov <- list_params$Cov
+    list_params$Prec = map(1:dim(Cov)[3],
+                           function(i) solve(Cov[,,i])) %>% 
+      do.call(what = function(...) abind(..., along = 3))
+  }
+  eta_2 = -0.5 * list_params$Prec
+  eta_1 = sapply(1:ncol(list_params$M),
+                 function(j){
+                   list_params$Prec[,,j] %*% list_params$M[,j]
+                 })
+  list(eta_1 = eta_1, eta_2 = eta_2)
+}
+
+get_multinormal_from_natural <- function(list_params){
+  eta_1 <- list_params$eta_1
+  eta_2 <- list_params$eta_2
+  Prec <- -2 * eta_2
+  Cov <- map(1:dim(Prec)[3],
+             function(i) solve(Prec[,,i])) %>% 
+    do.call(what = function(...) abind(..., along = 3))
+  M <- sapply(1:ncol(eta_1),
+              function(j){
+                Cov[,,j] %*% eta_1[,j]
+              })
+  list(M = M, Cov = Cov, Prec = Prec)
+}
+
+get_natural_gamma <- function(list_params){
+  eta_1 <- list_params$A - 1
+  eta_2 <- -list_params$B
+  list(eta_1 = eta_1, eta_2 = eta_2)
+}
+
+get_gamma_from_natural <- function(list_params){
+  list(A = list_params$eta_1 + 1, B = -1 * list_params$eta_2)
 }

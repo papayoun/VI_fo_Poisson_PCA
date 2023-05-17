@@ -18,18 +18,6 @@ true_params <- readRDS("experiment_params.rds")
 
 source("utils_Poisson_PPCA_VI_functions.R")
 
-# p <- ncol(Y)
-# q <- max(1, ncol(Y) - 1)
-# n <- nrow(Y)
-# priors = list(Sigma = list(A = 3, B = 2),
-#               Phi = list(A = 3/2, B = 3/2),
-#               Delta= list(A = rep(3, q),
-#                           B = 1),
-#               Beta = list(M = matrix(0,
-#                                      nrow = ncol(X), ncol = p),
-#                           Precision = array(diag(0.01, ncol(X)),
-#                                             dim = c(ncol(X), ncol(X), p))))
-
 
 result_VI <- get_CAVI(Y = Y, 
                       X = X,
