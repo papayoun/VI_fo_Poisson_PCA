@@ -149,11 +149,11 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
 
 get_update_Poisson_amortized_VI_Z <- function(X, params, encode){
   
-  target_function <- function(Y, encode, X, M, A, B) {
+  target_function <- function(Y, encode, M, A, B) {
     # i de 1 à n, j de 1 à p
     target_i <- function(i){
-      m_i = encode(X)$M[i]
-      s2_i = encode(X)$S2[i]
+      m_i = encode(Y)$M[i]
+      s2_i = encode(Y)$S2[i]
       y_i = Y[i]
       M_i = M[i]
       res_i = y_i * m_i - exp(m_i + 0.5 * s2_i)  - # Likelihood term 
@@ -168,10 +168,10 @@ get_update_Poisson_amortized_VI_Z <- function(X, params, encode){
   prior_means <- X %*% params$Beta$M + t(params$Eta$M) %*% params$Lambda$M
   A <- params$Sigma$A
   B <- params$Sigma$B
-  m_start <- encode(X)$M
-  s2_start <- encode(X)$S2
+  m_start <- encode(Y)$M # A EVITER, car on risque d'optimiser le point de départ.
+  s2_start <- encode(Y)$S2
   
-  ###TO CONTINUE
+  ###TO CONTINUE déclarer optimizer sur params de encode
   list(M = matrix(optim_results["mean", ],
                   nrow = params$n,
                   ncol = params$p),
@@ -418,7 +418,7 @@ get_CAVI <- function(Y,
                                        nn_linear(100, 40),
                                        nn_relu())
         params$latent_M = nn_linear(40, q)
-        params$latent_S2 = nn_linear(40, q)
+        params$latent_S2 = nn_linear(40, q)##TODO ADD SOFTMAX
       } 
     }
     if(is.null(X)){
@@ -549,12 +549,12 @@ get_CAVI <- function(Y,
       if(!amortize){
       params$Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)}
       else{
-        encode = function(x) {
-          result <- params$encoder(x) %>%
-            torch_flatten(start_dim = 1)
+        encode = function(Y) { # S'appliquera à la matrice des Y
+          result <- params$encoder(Y) %>%
+            torch_flatten(start_dim = 1) # Sur quelle dimension sont stackées les obs.
           M <- params$latent_M(result)
           S2 <- params$latent_S2(result)
-          list(mean, log_var)
+          list(M, S2)
         }
       }
       if(debug){

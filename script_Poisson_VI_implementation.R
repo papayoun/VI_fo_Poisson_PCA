@@ -34,8 +34,8 @@ source("utils_Poisson_PPCA_VI_functions.R")
 result_VI <- get_CAVI(Y = Y, 
                       X = X,
                       q = 7,
-                      seed = 123, 
-                      n_steps = 60, 
+                      seed = 5, 
+                      n_steps = 200, 
                       debug = FALSE, 
                       # priors = list(Sigma = list(A = 3, B = 2), 
                       #               Phi = list(A = 3/2, B = 3/2),
@@ -107,14 +107,16 @@ all_results <- lapply(1:50,
                                  q = 7,
                                  seed = 5*i, 
                                  n_steps = 30, 
+                                 seed = i, 
+                                 n_steps = 60, 
                                  debug = FALSE)
 )
 
 map_dfr(all_results, "ELBOS", .id = "Replicate") %>%
-  filter(iteration > 2) %>%
+  filter(iteration > 4) %>%
   ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
-  geom_line() +
-  theme(legend.position = "none")
+  geom_line() #+
+ # theme(legend.position = "none")
 
 best_seeds <- map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
   filter(iteration == max(iteration)) %>% 
