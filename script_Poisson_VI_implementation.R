@@ -34,8 +34,8 @@ source("utils_Poisson_PPCA_VI_functions.R")
 result_VI <- get_CAVI(Y = Y, 
                       X = X,
                       q = 7,
-                      seed = 123, 
-                      n_steps = 60, 
+                      seed = 5, 
+                      n_steps = 200, 
                       debug = FALSE, 
                       # priors = list(Sigma = list(A = 3, B = 2), 
                       #               Phi = list(A = 3/2, B = 3/2),
@@ -99,22 +99,22 @@ true_params$sigma2s
 ((result_VI$params$Sigma$A)/(result_VI$params$Sigma$B))^-0.5%>% plot()
 
 
-all_results <- lapply(1:4,
+all_results <- lapply(1:5,
                       FUN = function(i)
                         #    get_result(Y = Y, X = X_data, n_steps = 50, seed = i)
                         get_CAVI(Y = Y, 
                                  X = X,
                                  q = 7,
                                  seed = i, 
-                                 n_steps = 350, 
+                                 n_steps = 60, 
                                  debug = FALSE)
 )
 
 map_dfr(all_results, "ELBOS", .id = "Replicate") %>%
-  filter(iteration > 40) %>%
+  filter(iteration > 4) %>%
   ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
-  geom_line() +
-  theme(legend.position = "none")
+  geom_line() #+
+ # theme(legend.position = "none")
 
 all_params <- map(all_results, "params")
 map(all_params, "Eta") %>% 
