@@ -63,12 +63,12 @@ get_update_Poisson_VI_Eta <- function(params, X){
 get_update_Poisson_VI_Sigma_without_fixed_effects <- function(params, priors){
   Lambda <- params$Lambda
   Eta <- params$Eta
-  Phi <- params$Phi
-  Delta <- params$Delta
+  indexes <- params$batch_indexes
+  
   A <- rep(priors$Sigma$A + params$n / 2, params$p)
   E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
-           x = lapply(1:params$n, function(i){
+           x = lapply(indexes, function(i){
              Eta$M[, i] %*% t(Eta$M[, i])
            }))
   get_B_sigma_j <- function(j){
@@ -78,7 +78,7 @@ get_update_Poisson_VI_Sigma_without_fixed_effects <- function(params, priors){
                          (Lambda$Cov[,, j] + Lambda$M[, j] %*% t(Lambda$M[, j]))) 
     term1 + term2 + term3
   }
-  B <- priors$Sigma$B + sapply(1:params$p, get_B_sigma_j)
+  B <- priors$Sigma$B + params$scale_factor * sapply(1:params$p, get_B_sigma_j)
   list(A = A, B = B)
 }
 
@@ -87,6 +87,8 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
   Lambda <- params$Lambda
   Eta <- params$Eta
   Beta <- params$Beta
+  indexes <- params$batch_indexes
+
   # Posterior variationel de A
   update_without_X <- get_update_Poisson_VI_Sigma_without_fixed_effects(params, priors)
   A = update_without_X$A
@@ -96,10 +98,12 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
   else{
     get_update_term_B_sigma_j <- function(j){
       term1 <- 0.5 * sum(XprimeX * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
-      term2 <- -sum((params$Z$M[, j] -  t(Eta$M) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
+      term2 <- -sum((params$Z$M[indexes, j] -  
+                       t(Eta$M[, indexes]) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
       term1 + term2
     }
-    B <- update_without_X$B + map_dbl(1:params$p, get_update_term_B_sigma_j) 
+    B <- update_without_X$B + 
+      params$scale_factor * map_dbl(1:params$p, get_update_term_B_sigma_j) 
   }
   return(list(A = A, B = B))
 }
@@ -506,8 +510,11 @@ get_CAVI <- function(Y,
     }
     # Sigma
     if(updates["Sigma"]){
+      tmp_X <- X[params$batch_indexes, ] # X only at batch values
+      tmp_XpX <- t(tmp_X) %*% tmp_X
       new_Sigma <- get_update_Poisson_VI_Sigma(params = params, priors = priors,
-                                               X = X, XprimeX = XprimeX)
+                                               X = tmp_X, 
+                                               XprimeX = tmp_XpX)
       params$Sigma <- map2(.x = get_natural_gamma(params$Sigma),
                            .y = get_natural_gamma(new_Sigma),
                            .f = function(x, y){
