@@ -99,22 +99,40 @@ true_params$sigma2s
 ((result_VI$params$Sigma$A)/(result_VI$params$Sigma$B))^-0.5%>% plot()
 
 
-all_results <- lapply(1:4,
+all_results <- lapply(1:50,
+                      FUN = function(i)
+                        #    get_result(Y = Y, X = X_data, n_steps = 50, seed = i)
+                        get_CAVI(Y = Y, 
+                                 X = X,
+                                 q = 7,
+                                 seed = 5*i, 
+                                 n_steps = 30, 
+                                 debug = FALSE)
+)
+
+map_dfr(all_results, "ELBOS", .id = "Replicate") %>%
+  filter(iteration > 2) %>%
+  ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
+  geom_line() +
+  theme(legend.position = "none")
+
+best_seeds <- map_dfr(all_results, "ELBOS", .id = "Replicate") %>% 
+  filter(iteration == max(iteration)) %>% 
+  arrange(desc(ELBO)) %>% 
+  head() %>% 
+  mutate(seed = 5 * as.numeric(Replicate)) %>% 
+  pull(seed)
+
+all_results <- lapply(best_seeds,
                       FUN = function(i)
                         #    get_result(Y = Y, X = X_data, n_steps = 50, seed = i)
                         get_CAVI(Y = Y, 
                                  X = X,
                                  q = 7,
                                  seed = i, 
-                                 n_steps = 350, 
+                                 n_steps = 100, 
                                  debug = FALSE)
 )
-
-map_dfr(all_results, "ELBOS", .id = "Replicate") %>%
-  filter(iteration > 40) %>%
-  ggplot(aes(x = iteration, y = ELBO, color = Replicate)) +
-  geom_line() +
-  theme(legend.position = "none")
 
 all_params <- map(all_results, "params")
 map(all_params, "Eta") %>% 
