@@ -35,20 +35,13 @@ result_VI <- get_CAVI(Y = Y,
                       X = X,
                       q = 7,
                       seed = 5, 
-                      n_steps = 200, 
+                      n_steps = 3, 
                       debug = FALSE, 
-                      # priors = list(Sigma = list(A = 3, B = 2), 
-                      #               Phi = list(A = 3/2, B = 3/2),
-                      #               Delta = list(A = rep(3, ncol(true_params$Lambda)), 
-                      #                            B = 1),
-                      #               Beta = list(M = matrix(0,
-                      #                                      nrow = ncol(X), ncol = ncol(Y)),
-                      #                           Precision = array(diag(0.01, ncol(X)),
-                      #                                             dim = c(ncol(X), ncol(X), ncol(Y))))),
                       updates = c(Lambda = TRUE, Sigma = TRUE,
                                   Eta = TRUE, Delta = TRUE, Phi = TRUE, 
                                   Beta = TRUE, Z = TRUE),
                       get_ELBO_freq = 10)
+result_VI$params$Beta$M
 plot(result_VI$ELBOS[-c(1:2),])
 save(result_VI, file = "result_VI.RData")
 
