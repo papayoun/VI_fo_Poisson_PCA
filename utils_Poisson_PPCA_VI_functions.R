@@ -9,25 +9,40 @@ get_update_Poisson_VI_Lambda <- function(params, X){
   Delta <- params$Delta
   indexes <- params$batch_indexes
   scale_factor <- params$scale_factor
-  E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
+  E_eta_prime_eta <- apply(Eta$Cov[,, indexes], c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
            x = map(indexes, function(i){
              Eta$M[, i] %*% t(Eta$M[, i])
            }))
-  # Calcul des precisions
-  V_Lambda <- lapply(1:params$p, function(j){
-    precision <- Sigma$A[j] / Sigma$B[j] * E_eta_prime_eta * scale_factor + 
-      diag(x = Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B),
-           nrow = params$q, ncol = params$q)
-    variance <- solve(precision)
-    return(variance)
-  }) %>% 
-    abind(along = 3) # Mise au format array
-  M_Lambda <- sapply(1:params$p, function(j){
-    Sigma$A[j] / Sigma$B[j]  * V_Lambda[,, j] %*% Eta$M[, indexes] %*% 
+  # # Calcul des precisions
+  # V_Lambda <- lapply(1:params$p, function(j){
+  #   precision <- Sigma$A[j] / Sigma$B[j] * E_eta_prime_eta * scale_factor + 
+  #     diag(x = Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B),
+  #          nrow = params$q, ncol = params$q)
+  #   variance <- solve(precision)
+  #   return(variance)
+  # }) %>% 
+  #   abind(along = 3) # Mise au format array
+  # M_Lambda <- sapply(1:params$p, function(j){
+  #   Sigma$A[j] / Sigma$B[j]  * V_Lambda[,, j] %*% Eta$M[, indexes] %*% 
+  #     (params$Z$M[indexes, j] - X[indexes, ] %*% params$Beta$M[, j, drop = FALSE]) 
+  # })
+  # list(M = matrix(M_Lambda, nrow = params$q, ncol = params$p), Cov = V_Lambda)
+  
+  eta_1 <- sapply(1:params$p, function(j){
+    scale_factor * Sigma$A[j] / Sigma$B[j]   * Eta$M[, indexes] %*% 
       (params$Z$M[indexes, j] - X[indexes, ] %*% params$Beta$M[, j, drop = FALSE]) 
   })
-  list(M = matrix(M_Lambda, nrow = params$q, ncol = params$p), Cov = V_Lambda)
+  eta_2 <-   lapply(1:params$p, function(j){
+    precision <- scale_factor * Sigma$A[j] / Sigma$B[j] * E_eta_prime_eta + 
+      diag(x = Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B),
+           nrow = params$q, ncol = params$q)
+    return(-0.5 * precision)
+  }) %>% 
+    abind(along = 3)
+  # list(M = matrix(M_Beta, nrow = params$F_x, ncol = params$p),
+  #      Cov = V_Beta)
+  get_multinormal_from_natural(list(eta_1 = eta_1, eta_2 = eta_2))
 }
 
 
@@ -56,7 +71,11 @@ get_update_Poisson_VI_Eta <- function(params, X){
   M[, indexes] <- sapply(indexes, function(i){
     mean_matrix %*% response_matrix[i, ] 
   })
-  Cov <- array(common_cov, dim = c(params$q, params$q, params$n))
+  Cov <- params$Eta$Cov
+  Cov[,, indexes] <- array(common_cov,
+                           dim = c(params$q, params$q, length(indexes)))
+  # Cov <- array(common_cov,
+  #                          dim = c(params$q, params$q, params$n))
   list(M = matrix(M, nrow = params$q, ncol = params$n), Cov = Cov)
 }
 
@@ -66,7 +85,7 @@ get_update_Poisson_VI_Sigma_without_fixed_effects <- function(params, priors){
   indexes <- params$batch_indexes
   
   A <- rep(priors$Sigma$A + params$n / 2, params$p)
-  E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
+  E_eta_prime_eta <- apply(Eta$Cov[,,indexes], c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
            x = lapply(indexes, function(i){
              Eta$M[, i] %*% t(Eta$M[, i])
@@ -88,7 +107,7 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
   Eta <- params$Eta
   Beta <- params$Beta
   indexes <- params$batch_indexes
-
+  
   # Posterior variationel de A
   update_without_X <- get_update_Poisson_VI_Sigma_without_fixed_effects(params, priors)
   A = update_without_X$A
@@ -211,8 +230,21 @@ get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
         (params$Z$M[indexes, j] - t(params$Eta$M[, indexes]) %*% params$Lambda$M[, j]) + 
         priors$Beta$Precision[,, j] %*% priors$Beta$M[,j])
   })
-  list(M = matrix(M_Beta, nrow = params$F_x, ncol = params$p),
-       Cov = V_Beta)
+  # Actualisation des paramètres naturels
+  
+  eta_1 <- sapply(1:params$p, function(j){
+      scale_factor * Sigma$A[j] / Sigma$B[j]  * t(X) %*% 
+        (params$Z$M[indexes, j] - t(params$Eta$M[, indexes]) %*% params$Lambda$M[, j]) + 
+        priors$Beta$Precision[,, j] %*% priors$Beta$M[,j]
+  })
+  eta_2 <-  lapply(1:params$p, function(j){
+    precision <- scale_factor * Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$Precision[,,j]
+    return(-0.5 * precision)
+  }) %>% 
+    abind(along = 3)
+  # list(M = matrix(M_Beta, nrow = params$F_x, ncol = params$p),
+  #      Cov = V_Beta)
+  get_multinormal_from_natural(list(eta_1 = eta_1, eta_2 = eta_2))
 }
 
 get_update_Poisson_VI_Phi <- function(params, priors){
@@ -482,6 +514,43 @@ get_CAVI <- function(Y,
     sub_XprimeX <- t(sub_X) %*% sub_X
     # Start the iteration
     my_progress_bar$tick()
+    # Etas
+    if(updates["Eta"]){
+      params$Eta <- get_update_Poisson_VI_Eta(params = params, X = X)
+      if(debug){
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print(new_ELBO - current_ELBO)
+          print(paste("Problem at iteration", step_, "after updating Eta"))
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
+    if (updates["Z"]) {
+      if (!amortize) {
+        params$Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
+      }
+      else{
+        encode = function(Y) { # S'appliquera à la matrice des Y
+          result <- params$encoder(Y) %>%
+            torch_flatten(start_dim = 1) # Sur quelle dimension sont stackées les obs.
+          M <- params$latent_M(result)
+          S2 <- params$latent_S2(result)
+          list(M, S2)
+        }
+      }
+      
+      if(debug){
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print(new_ELBO - current_ELBO)
+          print(paste("Problem at iteration", step_, "after updating Z"))
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
     # Lambdas
     if(updates["Lambda"]){
       new_Lambda <- get_update_Poisson_VI_Lambda(params = params, X = X)
@@ -497,25 +566,6 @@ get_CAVI <- function(Y,
         if(new_ELBO < current_ELBO){
           print(new_ELBO - current_ELBO)
           print(paste("Problem at iteration", step_, "after updating Lambda"))
-        }
-        current_ELBO <- new_ELBO
-      }
-    }
-    # Etas
-    if(updates["Eta"]){
-      new_Eta <- get_update_Poisson_VI_Eta(params = params, X = X)
-      params$Eta <- map2(.x = get_natural_multinormal(params$Eta),
-                         .y = get_natural_multinormal(new_Eta),
-                         .f = function(x, y){
-                           (1 - learn_rate) * x + learn_rate * y
-                         }) %>% 
-        get_multinormal_from_natural()
-      if(debug){
-        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
-                             X = X, XprimeX = XprimeX)
-        if(new_ELBO < current_ELBO){
-          print(new_ELBO - current_ELBO)
-          print(paste("Problem at iteration", step_, "after updating Eta"))
         }
         current_ELBO <- new_ELBO
       }
@@ -560,6 +610,7 @@ get_CAVI <- function(Y,
         current_ELBO <- new_ELBO
       }
     }
+    
     # Phis
     if(updates["Phi"]){
       # params$Phi <- get_update_Poisson_VI_Phi(params, priors)
@@ -593,35 +644,6 @@ get_CAVI <- function(Y,
                              X = X, XprimeX = XprimeX)
         if(new_ELBO < current_ELBO){
           print(paste("Problem at iteration", step_, "after updating Delta"))
-        }
-        current_ELBO <- new_ELBO
-      }
-    }
-    if(updates["Z"]){
-      if(!amortize){
-        new_Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
-        params$Z <- map2(.x = get_natural_normal(params$Z),
-                         .y = get_natural_normal(new_Z),
-                         .f = function(x, y){
-                           (1 - learn_rate) * x + learn_rate * y
-                         }) %>% 
-          get_normal_from_natural()
-      }
-      else{
-        encode = function(Y) { # S'appliquera à la matrice des Y
-          result <- params$encoder(Y) %>%
-            torch_flatten(start_dim = 1) # Sur quelle dimension sont stackées les obs.
-          M <- params$latent_M(result)
-          S2 <- params$latent_S2(result)
-          list(M, S2)
-        }
-      }
-      if(debug){
-        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
-                             X = X, XprimeX = XprimeX)
-        if(new_ELBO < current_ELBO){
-          print(new_ELBO - current_ELBO)
-          print(paste("Problem at iteration", step_, "after updating Z"))
         }
         current_ELBO <- new_ELBO
       }
