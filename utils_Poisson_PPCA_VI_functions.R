@@ -458,26 +458,6 @@ get_CAVI <- function(Y,
   for(step_ in 1:n_steps){
     
     my_progress_bar$tick()
-    
-    # Lambdas
-    if(updates["Lambda"]){
-      new_Lambda <- get_update_Poisson_VI_Lambda(params = params, X = X)
-      params$Lambda <- map2(.x = get_natural_multinormal(params$Lambda),
-                            .y = get_natural_multinormal(new_Lambda),
-                            .f = function(x, y){
-                              (1 - learn_rate) * x + learn_rate * y
-                            }) %>% 
-        get_multinormal_from_natural()
-      if(debug){
-        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
-                             X = X, XprimeX = XprimeX)
-        if(new_ELBO < current_ELBO){
-          print(new_ELBO - current_ELBO)
-          print(paste("Problem at iteration", step_, "after updating Lambda"))
-        }
-        current_ELBO <- new_ELBO
-      }
-    }
     # Etas
     if(updates["Eta"]){
       new_Eta <- get_update_Poisson_VI_Eta(params = params, X = X)
@@ -497,6 +477,56 @@ get_CAVI <- function(Y,
         current_ELBO <- new_ELBO
       }
     }
+    #Z
+    if(updates["Z"]){
+      if(!amortize){
+        new_Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
+        params$Z <- map2(.x = get_natural_normal(params$Z),
+                         .y = get_natural_normal(new_Z),
+                         .f = function(x, y){
+                           (1 - learn_rate) * x + learn_rate * y
+                         }) %>% 
+          get_normal_from_natural()
+      }
+      else{
+        encode = function(Y) { # S'appliquera à la matrice des Y
+          result <- params$encoder(Y) %>%
+            torch_flatten(start_dim = 1) # Sur quelle dimension sont stackées les obs.
+          M <- params$latent_M(result)
+          S2 <- params$latent_S2(result)
+          list(M, S2)
+        }
+      }
+      if(debug){
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print(new_ELBO - current_ELBO)
+          print(paste("Problem at iteration", step_, "after updating Z"))
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
+    # Lambdas
+    if(updates["Lambda"]){
+      new_Lambda <- get_update_Poisson_VI_Lambda(params = params, X = X)
+      params$Lambda <- map2(.x = get_natural_multinormal(params$Lambda),
+                            .y = get_natural_multinormal(new_Lambda),
+                            .f = function(x, y){
+                              (1 - learn_rate) * x + learn_rate * y
+                            }) %>% 
+        get_multinormal_from_natural()
+      if(debug){
+        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
+                             X = X, XprimeX = XprimeX)
+        if(new_ELBO < current_ELBO){
+          print(new_ELBO - current_ELBO)
+          print(paste("Problem at iteration", step_, "after updating Lambda"))
+        }
+        current_ELBO <- new_ELBO
+      }
+    }
+    
     # Sigma
     if(updates["Sigma"]){
       new_Sigma <- get_update_Poisson_VI_Sigma(params = params, priors = priors,
@@ -573,35 +603,7 @@ get_CAVI <- function(Y,
         current_ELBO <- new_ELBO
       }
     }
-    if(updates["Z"]){
-      if(!amortize){
-        new_Z <- get_update_Poisson_VI_Z(Y = Y, X = X, params = params)
-        params$Z <- map2(.x = get_natural_normal(params$Z),
-                         .y = get_natural_normal(new_Z),
-                         .f = function(x, y){
-                           (1 - learn_rate) * x + learn_rate * y
-                         }) %>% 
-          get_normal_from_natural()
-      }
-      else{
-        encode = function(Y) { # S'appliquera à la matrice des Y
-          result <- params$encoder(Y) %>%
-            torch_flatten(start_dim = 1) # Sur quelle dimension sont stackées les obs.
-          M <- params$latent_M(result)
-          S2 <- params$latent_S2(result)
-          list(M, S2)
-        }
-      }
-      if(debug){
-        new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
-                             X = X, XprimeX = XprimeX)
-        if(new_ELBO < current_ELBO){
-          print(new_ELBO - current_ELBO)
-          print(paste("Problem at iteration", step_, "after updating Z"))
-        }
-        current_ELBO <- new_ELBO
-      }
-    }
+    
     if((n_steps %% get_ELBO_freq) == 0){
       ELBOS <- bind_rows(ELBOS,
                          data.frame(iteration = step_,
