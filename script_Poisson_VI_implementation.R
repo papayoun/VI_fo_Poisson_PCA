@@ -23,16 +23,16 @@ result_VI <- get_CAVI(Y = Y,
                       X = X,
                       q = 7,
                       seed = 5, 
-                      n_steps = 1000, 
-                      learn_rate = 0.2,
-                      batch_prop = 0.2,
+                      n_steps = 500, 
+                      batch_prop = .2,
                       debug = FALSE, 
                       updates = c(Lambda = TRUE, Sigma = TRUE,
                                   Eta = TRUE, Delta = TRUE, Phi = TRUE, 
                                   Beta = TRUE, Z = TRUE),
                       get_ELBO_freq = 10)
-result_VI$params$Beta$M
-plot(result_VI$ELBOS[-c(1:2),])
+plot(result_VI$ELBOS[-c(1:20),])
+result_VI$ELBOS %>% tail()
+result_VI$params$Sigma$B
 save(result_VI, file = "result_VI.RData")
 
 Z_predict <- X %*% result_VI$params$Beta$M + 
