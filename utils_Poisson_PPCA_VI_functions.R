@@ -14,21 +14,6 @@ get_update_Poisson_VI_Lambda <- function(params, X){
            x = map(indexes, function(i){
              Eta$M[, i] %*% t(Eta$M[, i])
            }))
-  # # Calcul des precisions
-  # V_Lambda <- lapply(1:params$p, function(j){
-  #   precision <- Sigma$A[j] / Sigma$B[j] * E_eta_prime_eta * scale_factor + 
-  #     diag(x = Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B),
-  #          nrow = params$q, ncol = params$q)
-  #   variance <- solve(precision)
-  #   return(variance)
-  # }) %>% 
-  #   abind(along = 3) # Mise au format array
-  # M_Lambda <- sapply(1:params$p, function(j){
-  #   Sigma$A[j] / Sigma$B[j]  * V_Lambda[,, j] %*% Eta$M[, indexes] %*% 
-  #     (params$Z$M[indexes, j] - X[indexes, ] %*% params$Beta$M[, j, drop = FALSE]) 
-  # })
-  # list(M = matrix(M_Lambda, nrow = params$q, ncol = params$p), Cov = V_Lambda)
-  
   eta_1 <- sapply(1:params$p, function(j){
     scale_factor * Sigma$A[j] / Sigma$B[j]   * Eta$M[, indexes] %*% 
       (params$Z$M[indexes, j] - X[indexes, ] %*% params$Beta$M[, j, drop = FALSE]) 
@@ -40,8 +25,6 @@ get_update_Poisson_VI_Lambda <- function(params, X){
     return(-0.5 * precision)
   }) %>% 
     abind(along = 3)
-  # list(M = matrix(M_Beta, nrow = params$F_x, ncol = params$p),
-  #      Cov = V_Beta)
   get_multinormal_from_natural(list(eta_1 = eta_1, eta_2 = eta_2))
 }
 
@@ -74,8 +57,6 @@ get_update_Poisson_VI_Eta <- function(params, X){
   Cov <- params$Eta$Cov
   Cov[,, indexes] <- array(common_cov,
                            dim = c(params$q, params$q, length(indexes)))
-  # Cov <- array(common_cov,
-  #                          dim = c(params$q, params$q, params$n))
   list(M = matrix(M, nrow = params$q, ncol = params$n), Cov = Cov)
 }
 
@@ -408,7 +389,9 @@ get_CAVI <- function(Y,
                      debug = FALSE,
                      get_ELBO_freq = 1,
                      batch_prop = 1,
-                     learn_rate = 1, # Must be between 0 and 1, 1 is CAVI
+                     get_learn_rate = function(i){
+                       1 / (1.1 + (i > 20) * abs(i - 20)^0.50001)
+                     }, # Must be between 0 and 1, 1 is CAVI
                      amortize = FALSE){
   p <- ncol(Y); n <- nrow(Y); 
   # Checking priors
@@ -506,6 +489,7 @@ get_CAVI <- function(Y,
   options(width = 80)
   for(step_ in 1:n_steps){
     # Bacth sampling
+    learn_rate <- get_learn_rate(step_)
     params$batch_indexes <- sample(1:params$n,
                                    size = params$batch_size,
                                    replace = FALSE) %>% 
