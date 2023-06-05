@@ -1,8 +1,10 @@
+
 rm(list = ls())
 library(tidyverse)
 library(abind) # To gather results together
 library(parallel) # For some parallel computations
 library(pacman) # For progress bar
+library(torch)
 source("utils_generating_data.R") # Creates experiment_params.rds
 
 
@@ -18,20 +20,21 @@ true_params <- readRDS("experiment_params.rds")
 
 source("utils_Poisson_PPCA_VI_functions.R")
 
-
 result_VI <- get_CAVI(Y = Y, 
                       X = X,
                       q = 7,
                       seed = 5, 
-                      n_steps = 500, 
-                      batch_prop = .2,
+                      n_steps = 2000, 
+                      batch_prop = .4,
                       debug = FALSE, 
+                      amortize = TRUE,
                       updates = c(Lambda = TRUE, Sigma = TRUE,
                                   Eta = TRUE, Delta = TRUE, Phi = TRUE, 
                                   Beta = TRUE, Z = TRUE),
                       get_ELBO_freq = 10)
-plot(result_VI$ELBOS[-c(1:20),])
 result_VI$ELBOS %>% tail()
+plot(result_VI$ELBOS[-c(1:2),])
+
 result_VI$params$Sigma$B
 save(result_VI, file = "result_VI.RData")
 
