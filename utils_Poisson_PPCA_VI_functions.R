@@ -147,13 +147,13 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
                    ncol = params$p))
 }
 
-get_update_Poisson_amortized_VI_Z <- function(X, params, encode){
+get_update_Poisson_amortized_VI_Z <- function(X, params, encode, optimizer){
   
-  target_function <- function(Y, encode, M, A, B) {
+  target_function <- function(X, encode, M, A, B) {
     # i de 1 à n, j de 1 à p
     target_i <- function(i){
-      m_i = encode(Y)$M[i]
-      s2_i = encode(Y)$S2[i]
+      m_i = encode(X)$M[i]
+      s2_i = encode(X)$S2[i]
       y_i = Y[i]
       M_i = M[i]
       res_i = y_i * m_i - exp(m_i + 0.5 * s2_i)  - # Likelihood term 
@@ -165,17 +165,22 @@ get_update_Poisson_amortized_VI_Z <- function(X, params, encode){
     return(torch_sum(-res)) # Return the negative results for optimization
   }
   # Matrix of prior expectations for Z
-  prior_means <- X %*% params$Beta$M + t(params$Eta$M) %*% params$Lambda$M
+  M <- X %*% params$Beta$M + t(params$Eta$M) %*% params$Lambda$M
   A <- params$Sigma$A
   B <- params$Sigma$B
-  m_start <- encode(Y)$M # A EVITER, car on risque d'optimiser le point de départ.
-  s2_start <- encode(Y)$S2
-  
-  ###TO CONTINUE déclarer optimizer sur params de encode
-  list(M = matrix(optim_results["mean", ],
-                  nrow = params$n,
+  #m_start <- encode(X)$M # A EVITER, car on risque d'optimiser le point de départ.
+  #s2_start <- encode(X)$S2
+  n_epoches = 100
+  for(epoch in 1:n_epoches){
+   loss = target_function(X, encode, M, A, B)
+   optimizer$zero_grad() 
+   loss$backward()
+   optimizer$step()
+  }
+  list(M = matrix(encode(X)$M, 
+                  nrow=params$n, 
                   ncol = params$p),
-       S2 = matrix(optim_results["var", ],
+       S2 = matrix(encode(X)$S2,
                    nrow = params$n,
                    ncol = params$p))
 }
@@ -414,12 +419,19 @@ get_CAVI <- function(Y,
     
     if(amortize){
       if(is.null(params$encoder)){
-        params$encoder = nn_sequential(nn_linear(n, 100),
+        params$encoder = nn_sequential(nn_linear(ncol(X), 40),
                                        nn_relu(),
-                                       nn_linear(100, 40),
-                                       nn_relu())
-        params$latent_M = nn_linear(40, q)
-        params$latent_S2 = nn_linear(40, q)##TODO ADD SOFTMAX
+                                       nn_linear(40, 40),
+                                       nn_relu(),
+                                       nn_linear(40, 2 * params$p))
+        
+        optimizer = optim_adam(params$encoder$parameters(), lr = 0.001)
+        encode = function(X) { # S'appliquera à la matrice des X
+          result <- params$encoder(X) 
+          M <- result[,1:params$p]
+          S2 <- nn_softmax()(result[,(params$p+1):(2 * params$p)])
+          list(M, S2)
+        }
       } 
     }
     if(is.null(X)){
@@ -489,13 +501,12 @@ get_CAVI <- function(Y,
           get_normal_from_natural()
       }
       else{
-        encode = function(Y) { # S'appliquera à la matrice des Y
-          result <- params$encoder(Y) %>%
-            torch_flatten(start_dim = 1) # Sur quelle dimension sont stackées les obs.
-          M <- params$latent_M(result)
-          S2 <- params$latent_S2(result)
-          list(M, S2)
-        }
+        params$encoder$train()
+        new_Z <- get_update_Poisson_amortized_VI_Z(Y = Y, X = X, 
+                                                   params = params, 
+                                                   encode = encode,
+                                                   optimizer = optimizer)
+        params$encoder$eval()
       }
       if(debug){
         new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
