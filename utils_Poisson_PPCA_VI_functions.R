@@ -160,7 +160,9 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
 }
 
 get_update_Poisson_amortized_VI_Z <- function(X, params, encode, optimizer){
-  
+  indexes <- params$batch_indexes
+  old_M = params$Z$M
+  old_S2 = params$Z$S2
   target_function <- function(X, encode, M, A, B) {
     # i de 1 à n, j de 1 à p
     target_i <- function(i){
@@ -184,17 +186,15 @@ get_update_Poisson_amortized_VI_Z <- function(X, params, encode, optimizer){
   #s2_start <- encode(X)$S2
   n_epoches = 100
   for(epoch in 1:n_epoches){
-   loss = target_function(X, encode, M, A, B)
+   loss = target_function(X[indexes,], encode, M[indexes,], A, B)
    optimizer$zero_grad() 
    loss$backward()
    optimizer$step()
   }
-  list(M = matrix(encode(X)$M, 
-                  nrow=params$n, 
-                  ncol = params$p),
-       S2 = matrix(encode(X)$S2,
-                   nrow = params$n,
-                   ncol = params$p))
+  old_M[indexes,] = matrix(encode(X[indexes,])$M, nrow = length(indexes), ncol= params$p)
+  old_S2[indexes,] = matrix(encode(X[indexes,])$S2, nrow = length(indexes), ncol= params$p)
+  list(M = old_M,
+       S2 = old_S2)
 }
 
 
@@ -541,12 +541,19 @@ get_CAVI <- function(Y,
           get_normal_from_natural()
       }
       else{
-        params$encoder$train()
+        params$encoder$train() ##Passage en mode train pour créer le graphe de calcul sur les paramètres de l'encodeur
         new_Z <- get_update_Poisson_amortized_VI_Z(Y = Y, X = X, 
                                                    params = params, 
                                                    encode = encode,
                                                    optimizer = optimizer)
-        params$encoder$eval()
+        params$encoder$eval() ##Passage en mode eval pour ne pas créer de graphe de calcul là où ca n'est pas nécessaire
+        params$Z <- map2(.x = get_natural_normal(params$Z),
+                         .y = get_natural_normal(new_Z),
+                         .f = function(x, y){
+                           (1 - learn_rate) * x + learn_rate * y
+                         }) %>% 
+          get_normal_from_natural()
+        
       }
       if(debug){
         new_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
