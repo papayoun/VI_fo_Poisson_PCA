@@ -7,25 +7,25 @@ get_update_Poisson_VI_Lambda <- function(params, X){
   Sigma <- params$Sigma
   Phi <- params$Phi
   Delta <- params$Delta
-  E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
+  indexes <- params$batch_indexes
+  scale_factor <- params$scale_factor
+  E_eta_prime_eta <- apply(Eta$Cov[,, indexes], c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
-           x = map(1:params$n, function(i){
+           x = map(indexes, function(i){
              Eta$M[, i] %*% t(Eta$M[, i])
            }))
-  # Calcul des precisions
-  V_Lambda <- lapply(1:params$p, function(j){
-    precision <- Sigma$A[j] / Sigma$B[j] * E_eta_prime_eta + 
+  eta_1 <- sapply(1:params$p, function(j){
+    scale_factor * Sigma$A[j] / Sigma$B[j]   * Eta$M[, indexes] %*% 
+      (params$Z$M[indexes, j] - X[indexes, ] %*% params$Beta$M[, j, drop = FALSE]) 
+  })
+  eta_2 <-   lapply(1:params$p, function(j){
+    precision <- scale_factor * Sigma$A[j] / Sigma$B[j] * E_eta_prime_eta + 
       diag(x = Phi$A[j, ] / Phi$B[j, ] * cumprod(Delta$A) / cumprod(Delta$B),
            nrow = params$q, ncol = params$q)
-    variance <- solve(precision)
-    return(variance)
+    return(-0.5 * precision)
   }) %>% 
-    abind(along = 3) # Mise au format array
-  M_Lambda <- sapply(1:params$p, function(j){
-    Sigma$A[j] / Sigma$B[j]  * V_Lambda[,, j] %*% Eta$M %*% 
-      (params$Z$M[, j] - X %*% params$Beta$M[, j, drop = FALSE]) 
-  })
-  list(M = matrix(M_Lambda, nrow = params$q, ncol = params$p), Cov = V_Lambda)
+    abind(along = 3)
+  get_multinormal_from_natural(list(eta_1 = eta_1, eta_2 = eta_2))
 }
 
 
@@ -33,8 +33,7 @@ get_update_Poisson_VI_Eta <- function(params, X){
   # Useful quantities
   Lambda <- params$Lambda
   Sigma <- params$Sigma
-  Phi <- params$Phi
-  Delta <- params$Delta
+  indexes <- params$batch_indexes
   
   #First, get the common covariance matrix
   common_cov <- lapply(1:params$p, function(j){
@@ -51,32 +50,35 @@ get_update_Poisson_VI_Eta <- function(params, X){
   # The means
   # Response matrix
   response_matrix <- params$Z$M - X %*% params$Beta$M
-  M <- sapply(1:params$n, function(i){
+  M <- params$Eta$M
+  M[, indexes] <- sapply(indexes, function(i){
     mean_matrix %*% response_matrix[i, ] 
   })
-  Cov <- array(common_cov, dim = c(params$q, params$q, params$n))
+  Cov <- params$Eta$Cov
+  Cov[,, indexes] <- array(common_cov,
+                           dim = c(params$q, params$q, length(indexes)))
   list(M = matrix(M, nrow = params$q, ncol = params$n), Cov = Cov)
 }
 
 get_update_Poisson_VI_Sigma_without_fixed_effects <- function(params, priors){
   Lambda <- params$Lambda
   Eta <- params$Eta
-  Phi <- params$Phi
-  Delta <- params$Delta
+  indexes <- params$batch_indexes
+  
   A <- rep(priors$Sigma$A + params$n / 2, params$p)
-  E_eta_prime_eta <- apply(Eta$Cov, c(1, 2), sum) + # Sum of variances
+  E_eta_prime_eta <- apply(Eta$Cov[,,indexes], c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
-           x = lapply(1:params$n, function(i){
+           x = lapply(indexes, function(i){
              Eta$M[, i] %*% t(Eta$M[, i])
            }))
   get_B_sigma_j <- function(j){
-    term1 <- 0.5 * sum(params$Z$M[, j]^2  +  params$Z$S2[,j]) 
-    term2 <- -sum(params$Z$M[, j] * (t(Eta$M) %*% Lambda$M[,j])) # Eta$M is coded in q x n
+    term1 <- 0.5 * sum(params$Z$M[indexes, j]^2  +  params$Z$S2[indexes, j]) 
+    term2 <- -sum(params$Z$M[indexes, j] * (t(Eta$M[, indexes]) %*% Lambda$M[,j])) # Eta$M is coded in q x n
     term3 <- 0.5 * sum(E_eta_prime_eta * 
                          (Lambda$Cov[,, j] + Lambda$M[, j] %*% t(Lambda$M[, j]))) 
     term1 + term2 + term3
   }
-  B <- priors$Sigma$B + sapply(1:params$p, get_B_sigma_j)
+  B <- priors$Sigma$B + params$scale_factor * sapply(1:params$p, get_B_sigma_j)
   list(A = A, B = B)
 }
 
@@ -85,6 +87,8 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
   Lambda <- params$Lambda
   Eta <- params$Eta
   Beta <- params$Beta
+  indexes <- params$batch_indexes
+  
   # Posterior variationel de A
   update_without_X <- get_update_Poisson_VI_Sigma_without_fixed_effects(params, priors)
   A = update_without_X$A
@@ -94,15 +98,18 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
   else{
     get_update_term_B_sigma_j <- function(j){
       term1 <- 0.5 * sum(XprimeX * (Beta$Cov[,,j] + Beta$M[,j] %*% t(Beta$M[,j])))
-      term2 <- -sum((params$Z$M[, j] -  t(Eta$M) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
+      term2 <- -sum((params$Z$M[indexes, j] -  
+                       t(Eta$M[, indexes]) %*% Lambda$M[,j]) * (X %*% Beta$M[,j])) # Eta$M is coded in q x n
       term1 + term2
     }
-    B <- update_without_X$B + map_dbl(1:params$p, get_update_term_B_sigma_j) 
+    B <- update_without_X$B + 
+      params$scale_factor * map_dbl(1:params$p, get_update_term_B_sigma_j) 
   }
   return(list(A = A, B = B))
 }
 
 get_update_Poisson_VI_Z <- function(Y, X, params){
+  indexes <- params$batch_indexes
   target_function <- function(z_pars_ij, y_ij, A_j, B_j, M_ij) {
     # i de 1 à n, j de 1 à p
     m_ij = z_pars_ij[1]
@@ -124,18 +131,23 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
   optim_results <- parallel::mcmapply(index_matrix[, "i"], 
                                       index_matrix[, "j"],
                                       FUN = function(i, j){
-                                        Opt <- optim(
-                                          par = c(m_start[i, j], s2_start[i, j]),
-                                          fn = target_function,
-                                          y_ij = Y[i, j],
-                                          A_j = A[j],
-                                          B_j = B[j],
-                                          M_ij = prior_means[i,j],
-                                          method = "L-BFGS-B",
-                                          lower = c(-Inf, 1e-10),
-                                          upper = c(Inf, 100)
-                                        )
-                                        c(mean = Opt$par[1], var = Opt$par[2])
+                                        if (i %in% indexes) {
+                                          Opt <- optim(
+                                            par = c(m_start[i, j], s2_start[i, j]),
+                                            fn = target_function,
+                                            y_ij = Y[i, j],
+                                            A_j = A[j],
+                                            B_j = B[j],
+                                            M_ij = prior_means[i,j],
+                                            method = "L-BFGS-B",
+                                            lower = c(-Inf, 1e-10),
+                                            upper = c(Inf, 100)
+                                          )
+                                          return(c(mean = Opt$par[1], var = Opt$par[2]))
+                                        }
+                                        else {
+                                          c(mean = m_start[i, j], var = s2_start[i, j])
+                                        }
                                       },
                                       mc.cores = parallel::detectCores() - 2,
                                       SIMPLIFY = TRUE)
@@ -189,9 +201,11 @@ get_update_Poisson_amortized_VI_Z <- function(X, params, encode, optimizer){
 
 get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
   Sigma <- params$Sigma
+  scale_factor <- params$scale_factor
+  indexes <- params$batch_indexes
   # Calcul des variances
   V_Beta <- lapply(1:params$p, function(j){
-    precision <- Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$Precision[,,j]
+    precision <- scale_factor * Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$Precision[,,j]
     variance <- solve(precision)
     return(variance)
   }) %>% 
@@ -199,11 +213,24 @@ get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
   M_Beta <- sapply(1:params$p, function(j){
     V_Beta[,, j] %*% (
       Sigma$A[j] / Sigma$B[j]  * t(X) %*% 
-        (params$Z$M[, j] - t(params$Eta$M) %*% params$Lambda$M[, j]) + 
+        (params$Z$M[indexes, j] - t(params$Eta$M[, indexes]) %*% params$Lambda$M[, j]) + 
         priors$Beta$Precision[,, j] %*% priors$Beta$M[,j])
   })
-  list(M = matrix(M_Beta, nrow = params$F_x, ncol = params$p),
-       Cov = V_Beta)
+  # Actualisation des paramètres naturels
+  
+  eta_1 <- sapply(1:params$p, function(j){
+      scale_factor * Sigma$A[j] / Sigma$B[j]  * t(X) %*% 
+        (params$Z$M[indexes, j] - t(params$Eta$M[, indexes]) %*% params$Lambda$M[, j]) + 
+        priors$Beta$Precision[,, j] %*% priors$Beta$M[,j]
+  })
+  eta_2 <-  lapply(1:params$p, function(j){
+    precision <- scale_factor * Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$Precision[,,j]
+    return(-0.5 * precision)
+  }) %>% 
+    abind(along = 3)
+  # list(M = matrix(M_Beta, nrow = params$F_x, ncol = params$p),
+  #      Cov = V_Beta)
+  get_multinormal_from_natural(list(eta_1 = eta_1, eta_2 = eta_2))
 }
 
 get_update_Poisson_VI_Phi <- function(params, priors){
@@ -366,7 +393,10 @@ get_CAVI <- function(Y,
                      updates = NULL,
                      debug = FALSE,
                      get_ELBO_freq = 1,
-                     learn_rate = 1, # Must be between 0 and 1, 1 is CAVI
+                     batch_prop = 1,
+                     get_learn_rate = function(i){
+                       1 / (1.1 + (i > 20) * abs(i - 20)^0.50001)
+                     }, # Must be between 0 and 1, 1 is CAVI
                      amortize = FALSE){
   p <- ncol(Y); n <- nrow(Y); 
   # Checking priors
@@ -459,6 +489,8 @@ get_CAVI <- function(Y,
   params$p <- ncol(Y)
   params$q <- q
   params$F_x <- ncol(X)
+  params$batch_size <- max(1, round(batch_prop * params$n))
+  params$scale_factor <- params$n / params$batch_size
   
   current_ELBO <- get_ELBO(Y = Y, params = params, priors = priors, 
                            X = X, XprimeX = XprimeX)
@@ -468,7 +500,15 @@ get_CAVI <- function(Y,
   my_progress_bar <- progress_bar$new(total=n_steps)
   options(width = 80)
   for(step_ in 1:n_steps){
-    
+    # Bacth sampling
+    learn_rate <- get_learn_rate(step_)
+    params$batch_indexes <- sample(1:params$n,
+                                   size = params$batch_size,
+                                   replace = FALSE) %>% 
+      sort()
+    sub_X <- X[params$batch_indexes, ] # X only at batch values
+    sub_XprimeX <- t(sub_X) %*% sub_X
+    # Start the iteration
     my_progress_bar$tick()
     # Etas
     if(updates["Eta"]){
@@ -537,11 +577,11 @@ get_CAVI <- function(Y,
         current_ELBO <- new_ELBO
       }
     }
-    
     # Sigma
     if(updates["Sigma"]){
       new_Sigma <- get_update_Poisson_VI_Sigma(params = params, priors = priors,
-                                               X = X, XprimeX = XprimeX)
+                                               X = sub_X, 
+                                               XprimeX = sub_XprimeX)
       params$Sigma <- map2(.x = get_natural_gamma(params$Sigma),
                            .y = get_natural_gamma(new_Sigma),
                            .f = function(x, y){
@@ -560,7 +600,7 @@ get_CAVI <- function(Y,
     }
     if(updates["Beta"]){
       new_Beta <- get_update_Poisson_VI_Beta(params = params, priors = priors, 
-                                             X = X, XprimeX = XprimeX)
+                                             X = sub_X, XprimeX = sub_XprimeX)
       params$Beta <- map2(.x = get_natural_multinormal(params$Beta),
                           .y = get_natural_multinormal(new_Beta),
                           .f = function(x, y){
@@ -577,6 +617,7 @@ get_CAVI <- function(Y,
         current_ELBO <- new_ELBO
       }
     }
+    
     # Phis
     if(updates["Phi"]){
       # params$Phi <- get_update_Poisson_VI_Phi(params, priors)
@@ -614,7 +655,6 @@ get_CAVI <- function(Y,
         current_ELBO <- new_ELBO
       }
     }
-    
     if((n_steps %% get_ELBO_freq) == 0){
       ELBOS <- bind_rows(ELBOS,
                          data.frame(iteration = step_,
