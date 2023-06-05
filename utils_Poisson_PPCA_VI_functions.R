@@ -159,23 +159,18 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
                    ncol = params$p))
 }
 
-get_update_Poisson_amortized_VI_Z <- function(X, params, encode, optimizer){
+get_update_Poisson_amortized_VI_Z <- function(Y, X, params, encode, optimizer){
+  # browser()
   indexes <- params$batch_indexes
   old_M = params$Z$M
   old_S2 = params$Z$S2
-  target_function <- function(X, encode, M, A, B) {
-    # i de 1 à n, j de 1 à p
-    target_i <- function(i){
-      m_i = encode(X)$M[i]
-      s2_i = encode(X)$S2[i]
-      y_i = Y[i]
-      M_i = M[i]
-      res_i = y_i * m_i - exp(m_i + 0.5 * s2_i)  - # Likelihood term 
-        0.5 * A / B * (m_i^2 + s2_i - 2 * m_i * M_i) + 
-        0.5 * log(s2_i)
-      return(res_i)
-    }# Variational entropy
-    res = lapply(1:params$n, target_i)
+  target_function <- function(Y, X, encode, M, A, B) {
+    enc_X <- encode(X)
+    pred_M <- enc_X$M
+    pred_S2 <- enc_X$S2
+    res <- Y * pred_M - torch_exp(pred_M + 0.5 * pred_S2) - 
+      0.5 * A / B * (pred_M^2 + pred_S2 - 2 * pred_M * M) +
+      0.5 * torch_log(pred_S2)
     return(torch_sum(-res)) # Return the negative results for optimization
   }
   # Matrix of prior expectations for Z
@@ -184,15 +179,16 @@ get_update_Poisson_amortized_VI_Z <- function(X, params, encode, optimizer){
   B <- params$Sigma$B
   #m_start <- encode(X)$M # A EVITER, car on risque d'optimiser le point de départ.
   #s2_start <- encode(X)$S2
-  n_epoches = 100
+  n_epoches = 10
   for(epoch in 1:n_epoches){
-   loss = target_function(X[indexes,], encode, M[indexes,], A, B)
+   loss = target_function(Y = Y[indexes, ], X = X[indexes,], 
+                          encode = encode, M = M[indexes,], A = A, B = B)
    optimizer$zero_grad() 
    loss$backward()
    optimizer$step()
   }
-  old_M[indexes,] = matrix(encode(X[indexes,])$M, nrow = length(indexes), ncol= params$p)
-  old_S2[indexes,] = matrix(encode(X[indexes,])$S2, nrow = length(indexes), ncol= params$p)
+  old_M[indexes,] = as.matrix(encode(X[indexes,])$M)
+  old_S2[indexes,] = as.matrix(encode(X[indexes,])$S2)
   list(M = old_M,
        S2 = old_S2)
 }
@@ -453,14 +449,15 @@ get_CAVI <- function(Y,
                                        nn_relu(),
                                        nn_linear(40, 40),
                                        nn_relu(),
-                                       nn_linear(40, 2 * params$p))
+                                       nn_linear(40, 2 * p))
         
-        optimizer = optim_adam(params$encoder$parameters(), lr = 0.001)
+        optimizer = optim_adam(params$encoder$parameters, lr = 0.005)
         encode = function(X) { # S'appliquera à la matrice des X
-          result <- params$encoder(X) 
-          M <- result[,1:params$p]
-          S2 <- nn_softmax()(result[,(params$p+1):(2 * params$p)])
-          list(M, S2)
+          result <- params$encoder(X)
+          p <- ncol(result) / 2
+          M <- result[,1:p]
+          S2 <- nn_softplus()(result[,(p+1):(2 * p)])
+          list(M = M, S2 = S2)
         }
       } 
     }
