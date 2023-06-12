@@ -477,7 +477,7 @@ get_CAVI <- function(Y,
     if(is.null(params$optimizer)){
       params$optimizer = optim_adam(params$encoder$parameters, lr = 0.005)
     }
-    encode = function(X, Y, y_ = amortize_in_Y) { # S'appliquera à la matrice des X
+    encode = function(X, Y, amortize_in_Y = amortize_in_Y) { # S'appliquera à la matrice des X
       if(amortize_in_Y){
         X_ = torch_cat(list(X,torch_log(Y+torch_ones_like(Y))), dim = -1)
       }
