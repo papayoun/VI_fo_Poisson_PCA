@@ -64,7 +64,6 @@ get_update_Poisson_VI_Sigma_without_fixed_effects <- function(params, priors){
   Lambda <- params$Lambda
   Eta <- params$Eta
   indexes <- params$batch_indexes
-  
   A <- rep(priors$Sigma$A + params$n / 2, params$p)
   E_eta_prime_eta <- apply(Eta$Cov[,,indexes], c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
@@ -92,7 +91,7 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
   # Posterior variationel de A
   update_without_X <- get_update_Poisson_VI_Sigma_without_fixed_effects(params, priors)
   A = update_without_X$A
-  if(all(X == 0)){ # Case when no covariates
+  if (all(X == 0)) { # Case when no covariates
     return(list(A = A, B = update_without_X$B))
   }
   else{
