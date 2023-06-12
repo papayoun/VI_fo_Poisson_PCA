@@ -160,12 +160,13 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
 }
 
 get_update_Poisson_amortized_VI_Z <- function(Y, X, params, encode, optimizer){
-  # browser()
   indexes <- params$batch_indexes
   old_M = params$Z$M
   old_S2 = params$Z$S2
   target_function <- function(Y, X, encode, M, A, B) {
-    enc_X <- encode(X)
+    #enc_X <- encode(X)
+    #browser()
+    enc_X <- encode(X=X, Y=Y)
     pred_M <- enc_X$M
     pred_S2 <- enc_X$S2
     res <- Y * pred_M - torch_exp(pred_M + 0.5 * pred_S2) - 
@@ -179,7 +180,7 @@ get_update_Poisson_amortized_VI_Z <- function(Y, X, params, encode, optimizer){
   B <- params$Sigma$B
   #m_start <- encode(X)$M # A EVITER, car on risque d'optimiser le point de départ.
   #s2_start <- encode(X)$S2
-  n_epoches = 10
+  n_epoches = 5
   for(epoch in 1:n_epoches){
    loss = target_function(Y = Y[indexes, ], X = X[indexes,], 
                           encode = encode, M = M[indexes,], A = A, B = B)
@@ -187,8 +188,11 @@ get_update_Poisson_amortized_VI_Z <- function(Y, X, params, encode, optimizer){
    loss$backward()
    optimizer$step()
   }
-  old_M[indexes,] = as.matrix(encode(X[indexes,])$M)
-  old_S2[indexes,] = as.matrix(encode(X[indexes,])$S2)
+  #old_M[indexes,] = as.matrix(encode(X[indexes,])$M)
+  #old_S2[indexes,] = as.matrix(encode(X[indexes,])$S2)
+  old_M[indexes,] = as.matrix(encode(X=X[indexes,], Y=Y[indexes,])$M)
+  old_S2[indexes,] = as.matrix(encode(X=X[indexes,], Y=Y[indexes,])$S2)
+  
   list(M = old_M,
        S2 = old_S2)
 }
@@ -393,7 +397,8 @@ get_CAVI <- function(Y,
                      get_learn_rate = function(i){
                        1 / (1.1 + (i > 20) * abs(i - 20)^0.50001)
                      }, # Must be between 0 and 1, 1 is CAVI
-                     amortize = FALSE){
+                     amortize = FALSE,
+                     amortize_y = FALSE){
   p <- ncol(Y); n <- nrow(Y); 
   # Checking priors
   if(is.null(priors)){
@@ -445,15 +450,27 @@ get_CAVI <- function(Y,
     
     if(amortize){
       if(is.null(params$encoder)){
-        params$encoder = nn_sequential(nn_linear(ncol(X), 40),
+        params$encoder = nn_sequential(#nn_linear(ncol(X), 20),
+                                       nn_linear(ncol(X)+ncol(Y), 40),
                                        nn_relu(),
                                        nn_linear(40, 40),
                                        nn_relu(),
                                        nn_linear(40, 2 * p))
+        init_weights <- function(m) {
+          if (is(m, "nn.Linear")) {
+            nn_init_normal_(m$weight, std = 0.01)
+            m$bias$data.fill_(0.01)
+          }
+        }
+        params$encoder$apply(init_weights)
         
-        optimizer = optim_adam(params$encoder$parameters, lr = 0.005)
-        encode = function(X) { # S'appliquera à la matrice des X
-          result <- params$encoder(X)
+        
+        optimizer = optim_adam(params$encoder$parameters, lr = 0.001)
+        encode = function(X, Y) { # S'appliquera à la matrice des X
+        #encode = function(X, Y) { # S'appliquera à la matrice des X et des Y
+          #Z = X
+          Z = torch_cat(list(X,torch_log(Y+torch_ones_like(Y))), dim = -1)
+          result <- params$encoder(Z)
           p <- ncol(result) / 2
           M <- result[,1:p]
           S2 <- nn_softplus()(result[,(p+1):(2 * p)])

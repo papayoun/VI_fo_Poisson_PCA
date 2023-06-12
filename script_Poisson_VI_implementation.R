@@ -24,19 +24,41 @@ result_VI <- get_CAVI(Y = Y,
                       X = X,
                       q = 7,
                       seed = 5, 
-                      n_steps = 2000, 
-                      batch_prop = .4,
+                      n_steps = 1000, 
+                      batch_prop = .04,
+                      get_learn_rate = function(i) 1,
                       debug = FALSE, 
                       amortize = TRUE,
+                      #amortize_y = TRUE
+                      updates = c(Lambda = TRUE, Sigma = TRUE,
+                                  Eta = TRUE, Delta = TRUE, Phi = TRUE, 
+                                  Beta = TRUE, Z = TRUE),
+                      get_ELBO_freq = 10,
+)
+                      #params = result_VI_non_amortized$params)
+result_VI$ELBOS %>% tail()
+plot(result_VI$ELBOS[-c(1:2),])
+result_VI$params$Lambda$M %>% apply(1, var) %>% plot()
+
+result_VI_non_amortized <- get_CAVI(Y = Y, 
+                      X = X,
+                      q = 7,
+                      seed = 5, 
+                      n_steps = 100, 
+                      batch_prop = 0.04,
+                      get_learn_rate = function(i) 1,
+                      debug = FALSE, 
+                      amortize = FALSE,
                       updates = c(Lambda = TRUE, Sigma = TRUE,
                                   Eta = TRUE, Delta = TRUE, Phi = TRUE, 
                                   Beta = TRUE, Z = TRUE),
                       get_ELBO_freq = 10)
-result_VI$ELBOS %>% tail()
-plot(result_VI$ELBOS[-c(1:2),])
 
-result_VI$params$Sigma$B
-save(result_VI, file = "result_VI.RData")
+result_VI_non_amortized$params$Sigma$B
+result_VI_non_amortized$ELBOS %>% tail()
+plot(result_VI_non_amortized$ELBOS[-c(1:2),])
+
+save(result_VI_non_amortized, file = "result_VI_non_amortized.RData")
 
 Z_predict <- X %*% result_VI$params$Beta$M + 
   t(result_VI$params$Eta$M) %*% result_VI$params$Lambda$M
