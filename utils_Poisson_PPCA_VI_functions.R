@@ -64,7 +64,6 @@ get_update_Poisson_VI_Sigma_without_fixed_effects <- function(params, priors){
   Lambda <- params$Lambda
   Eta <- params$Eta
   indexes <- params$batch_indexes
-  
   A <- rep(priors$Sigma$A + params$n / 2, params$p)
   E_eta_prime_eta <- apply(Eta$Cov[,,indexes], c(1, 2), sum) + # Sum of variances
     Reduce(f = "+", 
@@ -92,7 +91,7 @@ get_update_Poisson_VI_Sigma <- function(params, priors,
   # Posterior variationel de A
   update_without_X <- get_update_Poisson_VI_Sigma_without_fixed_effects(params, priors)
   A = update_without_X$A
-  if(all(X == 0)){ # Case when no covariates
+  if (all(X == 0)) { # Case when no covariates
     return(list(A = A, B = update_without_X$B))
   }
   else{
@@ -164,8 +163,6 @@ get_update_Poisson_amortized_VI_Z <- function(Y, X, params, encode, optimizer){
   old_M = params$Z$M
   old_S2 = params$Z$S2
   target_function <- function(Y, X, encode, M, A, B) {
-    #enc_X <- encode(X)
-    #browser()
     enc_X <- encode(X=X, Y=Y)
     pred_M <- enc_X$M
     pred_S2 <- enc_X$S2
@@ -398,7 +395,7 @@ get_CAVI <- function(Y,
                        1 / (1.1 + (i > 20) * abs(i - 20)^0.50001)
                      }, # Must be between 0 and 1, 1 is CAVI
                      amortize = FALSE,
-                     amortize_y = FALSE){
+                     amortize_in_Y = FALSE){
   p <- ncol(Y); n <- nrow(Y); 
   # Checking priors
   if(is.null(priors)){
@@ -447,36 +444,7 @@ get_CAVI <- function(Y,
                    Z = list(M = log(Y + 1),
                             S2 = matrix(.1, nrow = nrow(Y),
                                         ncol = ncol(Y)))) 
-    
-    if(amortize){
-      if(is.null(params$encoder)){
-        params$encoder = nn_sequential(#nn_linear(ncol(X), 20),
-                                       nn_linear(ncol(X)+ncol(Y), 40),
-                                       nn_relu(),
-                                       nn_linear(40, 40),
-                                       nn_relu(),
-                                       nn_linear(40, 2 * p))
-        init_weights <- function(m) {
-          if (is(m, "nn.Linear")) {
-            nn_init_normal_(m$weight, std = 0.01)
-            m$bias$data.fill_(0.01)
-          }
-        }
-        params$encoder$apply(init_weights)
-        
-        
-        optimizer = optim_adam(params$encoder$parameters, lr = 0.001)
-        encode = function(X, Y) { # S'appliquera à la matrice des X
-        #encode = function(X, Y) { # S'appliquera à la matrice des X et des Y
-          #Z = X
-          Z = torch_cat(list(X,torch_log(Y+torch_ones_like(Y))), dim = -1)
-          result <- params$encoder(Z)
-          p <- ncol(result) / 2
-          M <- result[,1:p]
-          S2 <- nn_softplus()(result[,(p+1):(2 * p)])
-          list(M = M, S2 = S2)
-        }
-      } 
+    params$amortize_in_Y = amortize_in_Y
     }
     if(is.null(X)){
       params$Beta = list(M = matrix(0,
@@ -490,6 +458,37 @@ get_CAVI <- function(Y,
                          Cov = array(diag(1, ncol(X)), 
                                      dim = c(ncol(X), ncol(X), p)))
     }
+  
+  if(amortize){
+    if(is.null(params$encoder)){
+      params$encoder = nn_sequential(nn_linear(ncol(X) + amortize_in_Y * ncol(Y), 40),
+                                     nn_relu(),
+                                     nn_linear(40, 40),
+                                     nn_relu(),
+                                     nn_linear(40, 2 * p))
+      init_weights <- function(m) {
+        if (is(m, "nn.Linear")) {
+          nn_init_normal_(m$weight, std = 0.01)
+          m$bias$data.fill_(0.01)
+        }
+      }
+      params$encoder$apply(init_weights)
+      } 
+    if(is.null(params$optimizer)){
+      params$optimizer = optim_adam(params$encoder$parameters, lr = 0.005)
+    }
+    encode = function(X, Y, y_ = amortize_in_Y) { # S'appliquera à la matrice des X
+      if(amortize_in_Y){
+        X_ = torch_cat(list(X,torch_log(Y+torch_ones_like(Y))), dim = -1)
+      }
+      else{
+        X_=X
+      }
+      result <- params$encoder(X_)
+      p <- ncol(result) / 2
+      M <- result[,1:p]
+      S2 <- nn_softplus()(result[,(p+1):(2 * p)])
+      list(M = M, S2 = S2)}
   }
   if(is.null(X)){
     updates["Beta"] <- FALSE
@@ -559,7 +558,7 @@ get_CAVI <- function(Y,
         new_Z <- get_update_Poisson_amortized_VI_Z(Y = Y, X = X, 
                                                    params = params, 
                                                    encode = encode,
-                                                   optimizer = optimizer)
+                                                   optimizer = params$optimizer)
         params$encoder$eval() ##Passage en mode eval pour ne pas créer de graphe de calcul là où ca n'est pas nécessaire
         params$Z <- map2(.x = get_natural_normal(params$Z),
                          .y = get_natural_normal(new_Z),

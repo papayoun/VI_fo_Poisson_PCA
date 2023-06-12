@@ -1,4 +1,5 @@
 
+
 rm(list = ls())
 library(tidyverse)
 library(abind) # To gather results together
@@ -23,13 +24,12 @@ source("utils_Poisson_PPCA_VI_functions.R")
 result_VI <- get_CAVI(Y = Y, 
                       X = X,
                       q = 7,
-                      seed = 5, 
-                      n_steps = 1000, 
-                      batch_prop = .04,
-                      get_learn_rate = function(i) 1,
+                      seed = 5,  
+                      n_steps = 100, 
+                      batch_prop = .4,
                       debug = FALSE, 
                       amortize = TRUE,
-                      #amortize_y = TRUE
+                      amortize_in_Y = FALSE,
                       updates = c(Lambda = TRUE, Sigma = TRUE,
                                   Eta = TRUE, Delta = TRUE, Phi = TRUE, 
                                   Beta = TRUE, Z = TRUE),
@@ -52,11 +52,12 @@ result_VI_non_amortized <- get_CAVI(Y = Y,
                       updates = c(Lambda = TRUE, Sigma = TRUE,
                                   Eta = TRUE, Delta = TRUE, Phi = TRUE, 
                                   Beta = TRUE, Z = TRUE),
-                      get_ELBO_freq = 10)
+                      get_ELBO_freq = 10, params = result_VI$params)
+plot(result_VI$ELBOS[-(1:10),], type = "l")
+plot(apply(result_VI$params$Lambda$M, 1, var))
+plot(colMeans(result_VI$params$Z$S2))
+result_VI$ELBOS %>% tail()
 
-result_VI_non_amortized$params$Sigma$B
-result_VI_non_amortized$ELBOS %>% tail()
-plot(result_VI_non_amortized$ELBOS[-c(1:2),])
 
 save(result_VI_non_amortized, file = "result_VI_non_amortized.RData")
 
@@ -70,12 +71,12 @@ Z_predict %>% round(1) %>% head()
 # Beta ? ------------------------------------------------------------------
 
 true_params$beta
-round(result_VI$params$Beta$M, 2)
+round(result_VI$params$Beta$M, 1)
 result_VI$params$Beta$Cov
 # Lambda? -----------------------------------------------------------------
 
 (true_params$Lambda %*% t(true_params$Lambda)) %>% .[1:5,1:5] 
-(t(result_VI$params$Lambda$M) %*% result_VI$params$Lambda$M)%>% .[1:5,1:5]
+(t(result_VI$params$Lambda$M) %*% result_VI$params$Lambda$M) %>% .[1:5,1:5]
 
 true_params$Lambda %*% t(true_params$Lambda) %>% 
   cov2cor()%>% .[1:5,1:5]
