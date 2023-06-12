@@ -442,25 +442,6 @@ get_CAVI <- function(Y,
                    Z = list(M = log(Y + 1),
                             S2 = matrix(.1, nrow = nrow(Y),
                                         ncol = ncol(Y)))) 
-    
-    if(amortize){
-      if(is.null(params$encoder)){
-        params$encoder = nn_sequential(nn_linear(ncol(X), 40),
-                                       nn_relu(),
-                                       nn_linear(40, 40),
-                                       nn_relu(),
-                                       nn_linear(40, 2 * p))
-        
-        optimizer = optim_adam(params$encoder$parameters, lr = 0.005)
-        encode = function(X) { # S'appliquera à la matrice des X
-          result <- params$encoder(X)
-          p <- ncol(result) / 2
-          M <- result[,1:p]
-          S2 <- nn_softplus()(result[,(p+1):(2 * p)])
-          list(M = M, S2 = S2)
-        }
-      } 
-    }
     if(is.null(X)){
       params$Beta = list(M = matrix(0,
                                     nrow = 1, ncol = p),
@@ -472,6 +453,25 @@ get_CAVI <- function(Y,
                                     nrow = ncol(X), ncol = p),
                          Cov = array(diag(1, ncol(X)), 
                                      dim = c(ncol(X), ncol(X), p)))
+    }
+  }
+  if(amortize){
+    if(is.null(params$encoder)){
+      params$encoder = nn_sequential(nn_linear(ncol(X), 40),
+                                     nn_relu(),
+                                     nn_linear(40, 40),
+                                     nn_relu(),
+                                     nn_linear(40, 2 * p))
+    } 
+    if(is.null(params$optimizer)){
+      params$optimizer = optim_adam(params$encoder$parameters, lr = 0.005)
+    }
+    encode = function(X) { # S'appliquera à la matrice des X
+      result <- params$encoder(X)
+      p <- ncol(result) / 2
+      M <- result[,1:p]
+      S2 <- nn_softplus()(result[,(p+1):(2 * p)])
+      list(M = M, S2 = S2)
     }
   }
   if(is.null(X)){
@@ -542,7 +542,7 @@ get_CAVI <- function(Y,
         new_Z <- get_update_Poisson_amortized_VI_Z(Y = Y, X = X, 
                                                    params = params, 
                                                    encode = encode,
-                                                   optimizer = optimizer)
+                                                   optimizer = params$optimizer)
         params$encoder$eval() ##Passage en mode eval pour ne pas créer de graphe de calcul là où ca n'est pas nécessaire
         params$Z <- map2(.x = get_natural_normal(params$Z),
                          .y = get_natural_normal(new_Z),
