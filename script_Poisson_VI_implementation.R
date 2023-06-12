@@ -23,17 +23,20 @@ source("utils_Poisson_PPCA_VI_functions.R")
 result_VI <- get_CAVI(Y = Y, 
                       X = X,
                       q = 7,
-                      seed = 5, 
-                      n_steps = 2000, 
+                      seed = 5,  
+                      n_steps = 100, 
                       batch_prop = .4,
                       debug = FALSE, 
                       amortize = TRUE,
                       updates = c(Lambda = TRUE, Sigma = TRUE,
                                   Eta = TRUE, Delta = TRUE, Phi = TRUE, 
                                   Beta = TRUE, Z = TRUE),
-                      get_ELBO_freq = 10)
+                      get_ELBO_freq = 10, params = result_VI$params)
+plot(result_VI$ELBOS[-(1:10),], type = "l")
+plot(apply(result_VI$params$Lambda$M, 1, var))
+plot(colMeans(result_VI$params$Z$S2))
 result_VI$ELBOS %>% tail()
-plot(result_VI$ELBOS[-c(1:2),])
+
 
 result_VI$params$Sigma$B
 save(result_VI, file = "result_VI.RData")
@@ -48,12 +51,12 @@ Z_predict %>% round(1) %>% head()
 # Beta ? ------------------------------------------------------------------
 
 true_params$beta
-round(result_VI$params$Beta$M, 2)
+round(result_VI$params$Beta$M, 1)
 result_VI$params$Beta$Cov
 # Lambda? -----------------------------------------------------------------
 
 (true_params$Lambda %*% t(true_params$Lambda)) %>% .[1:5,1:5] 
-(t(result_VI$params$Lambda$M) %*% result_VI$params$Lambda$M)%>% .[1:5,1:5]
+(t(result_VI$params$Lambda$M) %*% result_VI$params$Lambda$M) %>% .[1:5,1:5]
 
 true_params$Lambda %*% t(true_params$Lambda) %>% 
   cov2cor()%>% .[1:5,1:5]
