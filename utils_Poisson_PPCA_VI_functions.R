@@ -148,7 +148,7 @@ get_update_Poisson_VI_Z <- function(Y, X, params){
                                           c(mean = m_start[i, j], var = s2_start[i, j])
                                         }
                                       },
-                                      mc.cores = parallel::detectCores() - 2,
+                                      mc.cores = parallel::detectCores() - 4,
                                       SIMPLIFY = TRUE)
   list(M = matrix(optim_results["mean", ],
                   nrow = params$n,
@@ -179,11 +179,11 @@ get_update_Poisson_amortized_VI_Z <- function(Y, X, params, encode, optimizer){
   #s2_start <- encode(X)$S2
   n_epoches = 5
   for(epoch in 1:n_epoches){
-   loss = target_function(Y = Y[indexes, ], X = X[indexes,], 
-                          encode = encode, M = M[indexes,], A = A, B = B)
-   optimizer$zero_grad() 
-   loss$backward()
-   optimizer$step()
+    loss = target_function(Y = Y[indexes, ], X = X[indexes,], 
+                           encode = encode, M = M[indexes,], A = A, B = B)
+    optimizer$zero_grad() 
+    loss$backward()
+    optimizer$step()
   }
   #old_M[indexes,] = as.matrix(encode(X[indexes,])$M)
   #old_S2[indexes,] = as.matrix(encode(X[indexes,])$S2)
@@ -216,9 +216,9 @@ get_update_Poisson_VI_Beta <- function(params, priors, X, XprimeX){
   # Actualisation des paramètres naturels
   
   eta_1 <- sapply(1:params$p, function(j){
-      scale_factor * Sigma$A[j] / Sigma$B[j]  * t(X) %*% 
-        (params$Z$M[indexes, j] - t(params$Eta$M[, indexes]) %*% params$Lambda$M[, j]) + 
-        priors$Beta$Precision[,, j] %*% priors$Beta$M[,j]
+    scale_factor * Sigma$A[j] / Sigma$B[j]  * t(X) %*% 
+      (params$Z$M[indexes, j] - t(params$Eta$M[, indexes]) %*% params$Lambda$M[, j]) + 
+      priors$Beta$Precision[,, j] %*% priors$Beta$M[,j]
   })
   eta_2 <-  lapply(1:params$p, function(j){
     precision <- scale_factor * Sigma$A[j] / Sigma$B[j] * XprimeX + priors$Beta$Precision[,,j]
@@ -445,19 +445,19 @@ get_CAVI <- function(Y,
                             S2 = matrix(.1, nrow = nrow(Y),
                                         ncol = ncol(Y)))) 
     params$amortize_in_Y = amortize_in_Y
-    }
-    if(is.null(X)){
+    if (is.null(X)) {
       params$Beta = list(M = matrix(0,
                                     nrow = 1, ncol = p),
                          Cov = array(diag(x = 0.001, nrow = 1),
                                      dim = c(1, 1, p)))
     }
-    else{
+    else {
       params$Beta = list(M = matrix(rnorm(p * ncol(X)),
                                     nrow = ncol(X), ncol = p),
                          Cov = array(diag(1, ncol(X)), 
                                      dim = c(ncol(X), ncol(X), p)))
     }
+  }
   
   if(amortize){
     if(is.null(params$encoder)){
@@ -473,7 +473,7 @@ get_CAVI <- function(Y,
         }
       }
       params$encoder$apply(init_weights)
-      } 
+    } 
     if(is.null(params$optimizer)){
       params$optimizer = optim_adam(params$encoder$parameters, lr = 0.005)
     }
@@ -675,7 +675,7 @@ get_CAVI <- function(Y,
         current_ELBO <- new_ELBO
       }
     }
-    if((n_steps %% get_ELBO_freq) == 0){
+    if((step_ %% get_ELBO_freq) == 0){
       ELBOS <- bind_rows(ELBOS,
                          data.frame(iteration = step_,
                                     ELBO = get_ELBO(Y = Y, params = params, 
